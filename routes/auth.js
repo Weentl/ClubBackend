@@ -69,7 +69,9 @@ router.post('/login', async (req, res) => {
     if (!isMatch) return res.status(400).json({ message: 'Credenciales inválidas.' });
 
     // Genera un token JWT (válido por 1 día)
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1d' });
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1h' });
+    // Buscar el club principal del usuario
+    const mainClub = await Club.findOne({ user: user._id, isMain: true });
 
     res.json({
       token,
@@ -80,6 +82,11 @@ router.post('/login', async (req, res) => {
         businessType: user.businessType,
         isFirstLogin: user.isFirstLogin, // Nuevo campo
       },
+      mainClub: mainClub ? {
+        id: mainClub._id,
+        clubName: mainClub.clubName,
+        address: mainClub.address
+      } : null
     });
   } catch (err) {
     console.error(err);

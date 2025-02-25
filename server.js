@@ -5,9 +5,9 @@ const path = require('path');
 const cors = require('cors'); // Importa cors
 const authRoutes = require('./routes/auth');
 const productsRoutes = require('./routes/products');
-const Inventory = require('./models/Inventory');
 const inventoryRoutes = require('./routes/inventory'); // Importa las rutas de inventario
 const salesRoutes = require('./routes/sales'); // Nuevo endpoint de ventas
+const dashboardRoutes = require('./routes/dashboard'); // Importa las rutas del dashboard
 
 const app = express();
 
@@ -33,8 +33,8 @@ mongoose
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/inventory', inventoryRoutes); // <-- Agrega el endpoint para inventario
-
 app.use('/api/sales', salesRoutes); // Agregamos la ruta de ventas
+app.use('/api/dashboard', dashboardRoutes); // Agregamos la ruta del dashboard
 
 
 

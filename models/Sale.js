@@ -10,6 +10,7 @@ const SaleItemSchema = new mongoose.Schema({
 });
 
 const SaleSchema = new mongoose.Schema({
+  club: { type: mongoose.Schema.Types.ObjectId, ref: 'Club', required: true },
   items: [SaleItemSchema],
   total: { type: Number, required: true },
   status: { type: String, default: 'completed' },

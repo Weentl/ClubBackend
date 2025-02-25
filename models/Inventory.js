@@ -2,6 +2,7 @@
 const mongoose = require('mongoose');
 
 const InventorySchema = new mongoose.Schema({
+  club: { type: mongoose.Schema.Types.ObjectId, ref: 'Club', required: true },
   product_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product',
@@ -12,6 +13,7 @@ const InventorySchema = new mongoose.Schema({
     required: true,
     default: 0
   }
+  
 }, { timestamps: true });
 
 module.exports = mongoose.model('Inventory', InventorySchema);
