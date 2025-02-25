@@ -5,6 +5,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const authMiddleware = require('../middleware/auth'); // Asegúrate de tener el middleware de autenticación
+const Club = require('../models/Club'); // Importamos el nuevo modelo
 
 
 // Clave secreta para JWT (en producción, usa variables de entorno)
@@ -148,11 +149,11 @@ router.post('/reset-password', async (req, res) => {
 });
 
 router.post('/onboarding', authMiddleware, async (req, res) => {
-  // Usamos authMiddleware para proteger la ruta
-  const userId = req.userId; // El middleware de autenticación añade userId al request
-  const { businessName, productTypes, address, initialGoal, clubs } = req.body;
+  const userId = req.userId;
+  const { productTypes, mainClub, initialGoal, clubs } = req.body;
 
-  if (!businessName || !productTypes || !initialGoal) {
+  // Validar campos requeridos: se requiere productTypes, initialGoal y mainClub (con nombre y dirección)
+  if (!productTypes || !initialGoal || !mainClub || !mainClub.clubName || !mainClub.address) {
     return res.status(400).json({ message: 'Faltan campos requeridos del onboarding.' });
   }
 
@@ -162,22 +163,43 @@ router.post('/onboarding', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'Usuario no encontrado.' });
     }
 
-    // Actualiza la información del usuario con los datos de onboarding
-    user.businessName = businessName;
+    // Actualizamos los datos del usuario (ya no se guarda la dirección en el usuario)
     user.productTypes = productTypes;
-    user.address = address;
     user.initialGoal = initialGoal;
-    user.clubs = clubs;
-    user.isFirstLogin = false; // Marcar onboarding como completado
+    user.isFirstLogin = false;
     await user.save();
 
-    res.json({ message: 'Información de onboarding guardada correctamente.' });
+    // Creamos el club principal
+    const mainClubDoc = new Club({
+      clubName: mainClub.clubName,
+      address: mainClub.address,
+      user: user._id,
+      isMain: true
+    });
+    await mainClubDoc.save();
 
+    // Creamos los clubes adicionales (si los hay)
+    if (clubs && Array.isArray(clubs) && clubs.length > 0) {
+      for (const clubData of clubs) {
+        // Validamos que se haya ingresado un nombre (opcionalmente se podría validar la dirección también)
+        if (clubData.clubName && clubData.clubName.trim() !== '') {
+          const club = new Club({
+            clubName: clubData.clubName,
+            address: clubData.address,
+            user: user._id,
+            isMain: false
+          });
+          console.log('Club:', club);
+          await club.save();
+        }
+      }
+    }
+
+    res.json({ message: 'Onboarding completado correctamente.' });
   } catch (error) {
-    console.error('Error al guardar la información de onboarding:', error);
-    res.status(500).json({ message: 'Error en el servidor al guardar el onboarding.' });
+    console.error('Error al guardar el onboarding:', error);
+    res.status(500).json({ message: 'Error en el servidor.' });
   }
 });
-  
 
 module.exports = router;

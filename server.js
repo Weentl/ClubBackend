@@ -7,10 +7,7 @@ const authRoutes = require('./routes/auth');
 const productsRoutes = require('./routes/products');
 const Inventory = require('./models/Inventory');
 const inventoryRoutes = require('./routes/inventory'); // Importa las rutas de inventario
-<<<<<<< HEAD
 const salesRoutes = require('./routes/sales'); // Nuevo endpoint de ventas
-=======
->>>>>>> 0b3aaaf067b4cea9f0eff7fd67b060a0952aed8f
 
 const app = express();
 
@@ -36,10 +33,10 @@ mongoose
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/inventory', inventoryRoutes); // <-- Agrega el endpoint para inventario
-<<<<<<< HEAD
+
 app.use('/api/sales', salesRoutes); // Agregamos la ruta de ventas
-=======
->>>>>>> 0b3aaaf067b4cea9f0eff7fd67b060a0952aed8f
+
+
 
 // Puerto de escucha
 const PORT = process.env.PORT || 3000;
