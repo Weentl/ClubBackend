@@ -5,6 +5,9 @@ const path = require('path');
 const cors = require('cors'); // Importa cors
 const authRoutes = require('./routes/auth');
 const productsRoutes = require('./routes/products');
+const Inventory = require('./models/Inventory');
+const inventoryRoutes = require('./routes/inventory'); // Importa las rutas de inventario
+const salesRoutes = require('./routes/sales'); // Nuevo endpoint de ventas
 
 const app = express();
 
@@ -29,8 +32,10 @@ mongoose
 // Rutas
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
+app.use('/api/inventory', inventoryRoutes); // <-- Agrega el endpoint para inventario
+app.use('/api/sales', salesRoutes); // Agregamos la ruta de ventas
 
 // Puerto de escucha
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor corriendo en el puerto ${PORT}`));
 

@@ -4,6 +4,8 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const authMiddleware = require('../middleware/auth'); // Asegúrate de tener el middleware de autenticación
+
 
 // Clave secreta para JWT (en producción, usa variables de entorno)
 const JWT_SECRET = process.env.JWT_SECRET || 'tu_clave_secreta';
@@ -29,10 +31,21 @@ router.post('/register', async (req, res) => {
       password: hashedPassword,
       businessType,
       acceptedTerms,
+      isFirstLogin: true, // Nuevo campo
     });
 
     await user.save();
-    res.status(201).json({ message: 'Usuario registrado correctamente.' });
+    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1hr' });
+
+    res.status(201).json({ message: 'Usuario registrado correctamente.', 
+      token, 
+      user: {id: user._id, 
+        fullName: user.fullName, 
+        email: user.email, 
+        businessType: user.businessType, 
+        isFirstLogin: user.isFirstLogin
+      }, 
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error en el servidor.' });
@@ -64,6 +77,7 @@ router.post('/login', async (req, res) => {
         fullName: user.fullName,
         email: user.email,
         businessType: user.businessType,
+        isFirstLogin: user.isFirstLogin, // Nuevo campo
       },
     });
   } catch (err) {
@@ -132,5 +146,38 @@ router.post('/reset-password', async (req, res) => {
     res.status(500).json({ message: 'Error en el servidor.' });
   }
 });
+
+router.post('/onboarding', authMiddleware, async (req, res) => {
+  // Usamos authMiddleware para proteger la ruta
+  const userId = req.userId; // El middleware de autenticación añade userId al request
+  const { businessName, productTypes, address, initialGoal, clubs } = req.body;
+
+  if (!businessName || !productTypes || !initialGoal) {
+    return res.status(400).json({ message: 'Faltan campos requeridos del onboarding.' });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'Usuario no encontrado.' });
+    }
+
+    // Actualiza la información del usuario con los datos de onboarding
+    user.businessName = businessName;
+    user.productTypes = productTypes;
+    user.address = address;
+    user.initialGoal = initialGoal;
+    user.clubs = clubs;
+    user.isFirstLogin = false; // Marcar onboarding como completado
+    await user.save();
+
+    res.json({ message: 'Información de onboarding guardada correctamente.' });
+
+  } catch (error) {
+    console.error('Error al guardar la información de onboarding:', error);
+    res.status(500).json({ message: 'Error en el servidor al guardar el onboarding.' });
+  }
+});
+  
 
 module.exports = router;
