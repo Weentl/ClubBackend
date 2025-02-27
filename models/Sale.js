@@ -11,6 +11,7 @@ const SaleItemSchema = new mongoose.Schema({
 
 const SaleSchema = new mongoose.Schema({
   club: { type: mongoose.Schema.Types.ObjectId, ref: 'Club', required: true },
+  client_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Client' }, // Campo opcional para el cliente
   items: [SaleItemSchema],
   total: { type: Number, required: true },
   status: { type: String, default: 'completed' },

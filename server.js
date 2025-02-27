@@ -9,6 +9,7 @@ const inventoryRoutes = require('./routes/inventory'); // Importa las rutas de i
 const salesRoutes = require('./routes/sales'); // Nuevo endpoint de ventas
 const dashboardRoutes = require('./routes/dashboard'); // Importa las rutas del dashboard
 const clubsRoutes = require('./routes/clubs'); // Importa las rutas de los clubs
+const clientsRoutes = require('./routes/clients'); // Importa las rutas de los clientes
 
 const app = express();
 
@@ -36,7 +37,8 @@ app.use('/api/products', productsRoutes);
 app.use('/api/inventory', inventoryRoutes); // <-- Agrega el endpoint para inventario
 app.use('/api/sales', salesRoutes); // Agregamos la ruta de ventas
 app.use('/api/dashboard', dashboardRoutes); // Agregamos la ruta del dashboard
-app.use('/api/clubs', require('./routes/clubs'));
+app.use('/api/clubs', clubsRoutes);
+app.use('/api/clients', clientsRoutes);
 
 
 

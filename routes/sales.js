@@ -23,7 +23,7 @@ router.get('/', async (req, res) => {
 // POST /api/sales - Crear una nueva venta y actualizar inventario para productos sellados
 router.post('/', async (req, res) => {
   try {
-    const { items, total, status, club, clientTime, clientTimezone } = req.body;
+    const { items, total, status, club, clientTime, clientTimezone, client_id } = req.body;
     console.log('clientTime:', clientTime);
     console.log('time', clientTimezone);
     
@@ -34,6 +34,7 @@ router.post('/', async (req, res) => {
 
     // Crear la venta incluyendo el club
     const saleData = { items, total, status, club };
+    if (client_id) saleData.client_id = client_id;
     if (clientTime && clientTimezone) {
       if (clientTime && clientTimezone) {
         // Usar el nombre correcto created_at (con guion bajo)
