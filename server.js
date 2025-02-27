@@ -10,7 +10,7 @@ const salesRoutes = require('./routes/sales'); // Nuevo endpoint de ventas
 const dashboardRoutes = require('./routes/dashboard'); // Importa las rutas del dashboard
 const clubsRoutes = require('./routes/clubs'); // Importa las rutas de los clubs
 const clientsRoutes = require('./routes/clients'); // Importa las rutas de los clientes
-
+const employeeRoutes = require('./routes/employees');
 const app = express();
 
 // Habilitar CORS para todos los orígenes (puedes restringirlo en producción)
@@ -39,6 +39,8 @@ app.use('/api/sales', salesRoutes); // Agregamos la ruta de ventas
 app.use('/api/dashboard', dashboardRoutes); // Agregamos la ruta del dashboard
 app.use('/api/clubs', clubsRoutes);
 app.use('/api/clients', clientsRoutes);
+
+app.use('/api/employees', employeeRoutes);
 
 
 
