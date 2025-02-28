@@ -16,21 +16,22 @@ router.get('/:clubId', async (req, res) => {
 
 // Crear empleado - ahora recibe el clubId del body
 router.post('/', async (req, res) => {
-    try {
-      const { name, role, phone, email, club } = req.body;
-      
-      // Verifica que el club existe
-      const clubExists = await Club.findById(club);
-      if (!clubExists) {
-        return res.status(404).json({ error: 'Club no encontrado' });
-      }
-  
-      const newEmployee = new Employee({ name, role, phone, email, club });
-      await newEmployee.save();
-      res.status(201).json(newEmployee);
-    } catch (error) {
-      res.status(500).json({ error: 'Error al crear empleado' });
+  try {
+    const { name, role, phone, email, club, permissions } = req.body;
+    
+    // Verifica que el club existe
+    const clubExists = await Club.findById(club);
+    if (!clubExists) {
+      return res.status(404).json({ error: 'Club no encontrado' });
     }
+  
+    // Se crea el empleado incluyendo "permissions"
+    const newEmployee = new Employee({ name, role, phone, email, club, permissions });
+    await newEmployee.save();
+    res.status(201).json(newEmployee);
+  } catch (error) {
+    res.status(500).json({ error: 'Error al crear empleado' });
+  }
 });
 
 // Actualizar empleado
