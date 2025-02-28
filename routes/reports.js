@@ -345,6 +345,23 @@ async function getReportData(type, period) {
       return { salesData, totalRevenue, totalQuantity, topProducts, dailySales, categoryData };
     }
 
+    case 'transaction-history': {
+      // Datos simulados para historial de movimientos
+      const transactionsData = [
+        { id: '1', date: '2024-05-15', type: 'sale', description: 'Venta de Proteína Whey x2', amount: 2400, category: 'Suplementos', reference: 'Venta #1234' },
+        { id: '2', date: '2024-05-16', type: 'expense', description: 'Compra de empaques', amount: -120, category: 'Inventario', reference: 'Factura #5678' },
+        { id: '3', date: '2024-05-17', type: 'sale', description: 'Venta de Batidos x5', amount: 600, category: 'Preparados', reference: 'Venta #1235' },
+        { id: '4', date: '2024-05-18', type: 'expense', description: 'Pago de electricidad', amount: -150, category: 'Servicios', reference: 'Recibo #9012' },
+        { id: '5', date: '2024-05-19', type: 'adjustment', description: 'Ajuste de inventario - Proteína', amount: -300, category: 'Inventario' },
+        { id: '6', date: '2024-05-20', type: 'sale', description: 'Venta de BCAA x3', amount: 1800, category: 'Suplementos', reference: 'Venta #1236' },
+        { id: '7', date: '2024-05-21', type: 'expense', description: 'Pago de nómina', amount: -2000, category: 'Nómina', reference: 'Transferencia #3456' },
+        { id: '8', date: '2024-05-22', type: 'sale', description: 'Venta de Waffles x10', amount: 900, category: 'Preparados', reference: 'Venta #1237' },
+        { id: '9', date: '2024-05-23', type: 'expense', description: 'Compra de ingredientes', amount: -500, category: 'Inventario', reference: 'Factura #5679' },
+        { id: '10', date: '2024-05-24', type: 'adjustment', description: 'Ajuste de inventario - Vasos', amount: -100, category: 'Inventario' }
+      ];
+      return { transactionsData };
+    }
+
     default:
       return { message: 'Tipo de reporte no encontrado' };
   }
