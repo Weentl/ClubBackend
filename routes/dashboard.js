@@ -8,7 +8,7 @@ const moment = require('moment-timezone');
 
 // Endpoint para obtener los KPIs del dashboard para un club específico
 router.get('/kpis', async (req, res) => {
-  const { club, timezone } = req.query;
+  const { club, timezone, user } = req.query;
   if (!club) {
     return res.status(400).json({ error: 'El club es requerido' });
   }
@@ -49,7 +49,7 @@ router.get('/kpis', async (req, res) => {
     });
 
     // Clubs Activos: conteo global de clubs
-    const clubsActivos = await Club.countDocuments({});
+    const clubsActivos = await Club.countDocuments({ user });
 
     res.json({
       ventasHoy,
