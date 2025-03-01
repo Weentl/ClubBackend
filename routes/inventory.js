@@ -87,5 +87,23 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/low-stock', async (req, res) => {
+  const { club, threshold } = req.query;
+  if (!club) {
+    return res.status(400).json({ error: 'El club es requerido' });
+  }
+  // Se utiliza 5 como umbral por defecto, pero se puede enviar otro valor mediante el query parameter "threshold"
+  const stockThreshold = threshold ? parseInt(threshold) : 5;
+  try {
+    // Se busca el inventario del club con cantidad menor al umbral
+    const lowStockItems = await Inventory.find({ club, quantity: { $lt: stockThreshold } })
+      .populate('product_id', 'name'); // Se asume que se desea el nombre del producto
+    res.json(lowStockItems);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
 module.exports = router;
 

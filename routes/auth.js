@@ -8,6 +8,7 @@ const authMiddleware = require('../middleware/auth'); // Asegúrate de tener el 
 const Club = require('../models/Club'); // Importamos el nuevo modelo
 
 
+
 // Clave secreta para JWT (en producción, usa variables de entorno)
 const JWT_SECRET = process.env.JWT_SECRET || 'tu_clave_secreta';
 
