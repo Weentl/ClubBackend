@@ -13,13 +13,18 @@ const clientsRoutes = require('./routes/clients'); // Importa las rutas de los c
 const employeeRoutes = require('./routes/employees');
 const reportsRoutes = require('./routes/reports'); // Importa el endpoint de reportes
 const expensesRoutes = require('./routes/expenses'); // Importa las rutas de gastos
+const userRoutes = require('./routes/userRoutes');
+
+
 const app = express();
+
 
 // Habilitar CORS para todos los orígenes (puedes restringirlo en producción)
 app.use(cors());
 
 // Middlewares
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Servir archivos estáticos desde la carpeta "uploads"
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -44,6 +49,7 @@ app.use('/api/clients', clientsRoutes);
 app.use('/api/reports', reportsRoutes); // Registrar la ruta de reportes
 app.use('/api/employees', employeeRoutes);
 app.use('/api/expenses', expensesRoutes); // Agrega la ruta de gastos
+app.use('/api/users', userRoutes);
 
 
 

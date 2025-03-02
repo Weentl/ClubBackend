@@ -18,11 +18,14 @@ router.get('/kpis', async (req, res) => {
   try {
     // Usar UTC para consultas de fechas para evitar problemas de zona horaria
     const now = moment.utc();
+    const nowSale = moment.tz('America/Mexico_City');
     
     // Calcular inicio y fin del día en UTC
-    const startOfDay = now.clone().startOf('day').toDate();
-    const endOfDay = now.clone().endOf('day').toDate();
+    const startOfDay = nowSale.clone().startOf('day').toDate();
+    const endOfDay = nowSale.clone().endOf('day').toDate();
     
+    console.log('startOfDay', startOfDay);
+    console.log('endOfDay', endOfDay);
     // Ventas Hoy: suma de las ventas de hoy para el club
     const salesToday = await Sale.find({
       club,

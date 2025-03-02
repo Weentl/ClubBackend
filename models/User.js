@@ -12,15 +12,17 @@ const UserSchema = new mongoose.Schema({
   },
   acceptedTerms: { type: Boolean, required: true },
   isFirstLogin: { type: Boolean, default: true },
-  // Se mantiene productTypes y initialGoal, pero se elimina address
   productTypes: [{ type: String }],
   initialGoal: { type: String },
-  // Campos para el reseteo de contraseña
   resetCode: { type: String },
   resetCodeExpiration: { type: Date },
+  // Nuevos campos para la configuración de la cuenta
+  phone: { type: String, default: '' },
+  profileImage: { type: String, default: '' }
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', UserSchema);
+
 
 
 

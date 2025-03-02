@@ -1,4 +1,3 @@
-// routes/sales.js
 const express = require('express');
 const router = express.Router();
 const Sale = require('../models/Sale');
@@ -27,20 +26,17 @@ router.post('/', async (req, res) => {
     console.log('clientTime:', clientTime);
     console.log('time', clientTimezone);
     
-    // Se valida que cada item tenga product_id y se requiere club
+    // Validar que cada item tenga product_id y que se provea club
     if (!items || !Array.isArray(items) || items.some(item => !item.product_id) || !club) {
       return res.status(400).json({ message: 'Faltan campos requeridos.' });
     }
 
-    // Crear la venta incluyendo el club
+    // Crear la venta incluyendo el club y, si corresponde, el cliente
     const saleData = { items, total, status, club };
     if (client_id) saleData.client_id = client_id;
     if (clientTime && clientTimezone) {
-      if (clientTime && clientTimezone) {
-        // Usar el nombre correcto created_at (con guion bajo)
-        saleData.created_at = moment.tz(clientTime, clientTimezone).toDate();
-        console.log('created_at', saleData.created_at);
-      }
+      saleData.created_at = moment.tz(clientTime, clientTimezone).toDate();
+      console.log('created_at', saleData.created_at);
     }
     const sale = new Sale(saleData);
     console.log('sale', sale);
@@ -65,4 +61,5 @@ router.post('/', async (req, res) => {
 });
 
 module.exports = router;
+
 
