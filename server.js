@@ -31,7 +31,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Conexión a MongoDB
 mongoose
-  .connect('mongodb://localhost:27019/plataformaDB', {
+  .connect('mongodb+srv://Glowel:zujNCzJxnjuSsx3A@myclub.v10xz.mongodb.net/?retryWrites=true&w=majority&appName=MyClub', {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
