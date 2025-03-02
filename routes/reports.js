@@ -2,7 +2,7 @@
 const express = require('express');
 const moment = require('moment');
 const router = express.Router();
-
+const mongoose = require('mongoose');
 // Importar modelos
 const Sale = require('../models/Sale');
 const Expense = require('../models/Expense');
@@ -15,41 +15,92 @@ const Club = require('../models/Club');
  * Reporte Ejecutivo:
  * Calcula ganancias netas, top producto, mayor gasto y club líder a partir de las ventas y gastos.
  */
-async function getExecutiveSummary(period) {
-  // Definir rango de fechas según el período
+async function getExecutiveSummary(period, club) {
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
   let startDate, endDate;
-  const now = new Date();
   if (period === 'weekly') {
-    startDate = moment(now).startOf('week').toDate();
-    endDate = moment(now).endOf('week').toDate();
+    startDate = now.clone().startOf('isoWeek');
+    endDate = now.clone().endOf('isoWeek');
   } else if (period === 'monthly') {
-    startDate = moment(now).startOf('month').toDate();
-    endDate = moment(now).endOf('month').toDate();
+    startDate = now.clone().startOf('month');
+    endDate = now.clone().endOf('month');
   } else {
-    startDate = moment(now).startOf('year').toDate();
-    endDate = moment(now).endOf('year').toDate();
+    startDate = now.clone().startOf('year');
+    endDate = now.clone().endOf('year');
   }
   
-  // Obtener total de ventas
+  const salesStartDate = startDate.toDate();
+  const salesEndDate = endDate.toDate();
+  const expenseStartDate = moment.utc(salesStartDate).add(-1, 'day').startOf('day').toDate();
+  const expenseEndDate = moment.utc(salesEndDate).add(-1, 'day').endOf('day').toDate();
+
+
+  // Agregar el filtro de club si se proporciona
+  let salesMatch = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
+  let expenseMatch = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
+  if (club) {
+    salesMatch.club = mongoose.Types.ObjectId(club);
+    expenseMatch.club = club; // Asumiendo que Expense también posee el campo club
+  }
+
+  // Total de ventas
   const salesAgg = await Sale.aggregate([
-    { $match: { created_at: { $gte: startDate, $lte: endDate } } },
+    { $match: salesMatch },
     { $group: { _id: null, totalSales: { $sum: "$total" } } }
   ]);
   const totalSales = salesAgg.length ? salesAgg[0].totalSales : 0;
-  
-  // Obtener total de gastos
+
+  // Total de gastos
   const expensesAgg = await Expense.aggregate([
-    { $match: { date: { $gte: startDate, $lte: endDate } } },
+    { $match: expenseMatch },
     { $group: { _id: null, totalExpenses: { $sum: "$amount" } } }
   ]);
   const totalExpenses = expensesAgg.length ? expensesAgg[0].totalExpenses : 0;
-  
+
   const netProfit = totalSales - totalExpenses;
-  const netProfitChange = 0; // Se podría comparar con un período anterior
+
+  // Período anterior
+  let prevStart, prevEnd;
+  if (period === 'weekly') {
+    prevStart = startDate.clone().subtract(1, 'week');
+    prevEnd = endDate.clone().subtract(1, 'week');
+  } else if (period === 'monthly') {
+    prevStart = startDate.clone().subtract(1, 'month');
+    prevEnd = endDate.clone().subtract(1, 'month');
+  } else {
+    prevStart = startDate.clone().subtract(1, 'year');
+    prevEnd = endDate.clone().subtract(1, 'year');
+  }
+  const prevSalesStart = prevStart.toDate();
+  const prevSalesEnd = prevEnd.toDate();
+  const prevExpenseStart = moment.utc(prevSalesStart).add(1, 'day').startOf('day').toDate();
+  const prevExpenseEnd = moment.utc(prevSalesEnd).add(1, 'day').endOf('day').toDate();
+
+  let prevSalesMatch = { created_at: { $gte: prevSalesStart, $lte: prevSalesEnd } };
+  let prevExpenseMatch = { date: { $gte: prevExpenseStart, $lte: prevExpenseEnd } };
+  if (club) {
+    prevSalesMatch.club = club;
+    prevExpenseMatch.club = club;
+  }
   
-  // Top producto: se agrupan los items vendidos
-  const topProductAgg = await Sale.aggregate([
-    { $match: { created_at: { $gte: startDate, $lte: endDate } } },
+  const prevSalesAgg = await Sale.aggregate([
+    { $match: prevSalesMatch },
+    { $group: { _id: null, totalSales: { $sum: "$total" } } }
+  ]);
+  const prevTotalSales = prevSalesAgg.length ? prevSalesAgg[0].totalSales : 0;
+
+  const prevExpensesAgg = await Expense.aggregate([
+    { $match: prevExpenseMatch },
+    { $group: { _id: null, totalExpenses: { $sum: "$amount" } } }
+  ]);
+  const prevTotalExpenses = prevExpensesAgg.length ? prevExpensesAgg[0].totalExpenses : 0;
+  const prevNetProfit = prevTotalSales - prevTotalExpenses;
+  const netProfitChange = prevNetProfit !== 0 ? ((netProfit - prevNetProfit) / Math.abs(prevNetProfit)) * 100 : 0;
+
+  // Producto estrella
+  let topProductAgg = await Sale.aggregate([
+    { $match: salesMatch },
     { $unwind: "$items" },
     { $group: { _id: "$items.product_id", totalQuantity: { $sum: "$items.quantity" } } },
     { $sort: { totalQuantity: -1 } },
@@ -59,58 +110,81 @@ async function getExecutiveSummary(period) {
   if (topProductAgg.length) {
     const product = await Product.findById(topProductAgg[0]._id);
     if (product) {
+      const totalProductAgg = await Sale.aggregate([
+        { $match: salesMatch },
+        { $unwind: "$items" },
+        { $group: { _id: null, totalQuantity: { $sum: "$items.quantity" } } }
+      ]);
+      const totalProductQuantity = totalProductAgg.length ? totalProductAgg[0].totalQuantity : 0;
+      const percentage = totalProductQuantity > 0 ? (topProductAgg[0].totalQuantity / totalProductQuantity) * 100 : 0;
       topProduct = {
         name: product.name,
         sales: topProductAgg[0].totalQuantity,
-        percentage: 0 // Se podría calcular como parte del total de ventas
+        percentage
       };
     }
   }
-  
-  // Mayor gasto: obtener el gasto más alto en el período
-  const topExpenseDoc = await Expense.findOne({ date: { $gte: startDate, $lte: endDate } }).sort({ amount: -1 });
+
+  // Mayor gasto
+  const topExpenseDoc = await Expense.findOne(expenseMatch).sort({ amount: -1 });
   let topExpense = { name: 'N/A', amount: 0, percentage: 0 };
   if (topExpenseDoc) {
+    const percentage = totalExpenses > 0 ? (topExpenseDoc.amount / totalExpenses) * 100 : 0;
     topExpense = {
       name: topExpenseDoc.category,
       amount: topExpenseDoc.amount,
-      percentage: 0
+      percentage
     };
   }
-  
-  // Club líder: agrupar ventas por club
-  const topClubAgg = await Sale.aggregate([
-    { $match: { created_at: { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: "$club", totalSales: { $sum: "$total" } } },
-    { $sort: { totalSales: -1 } },
-    { $limit: 1 }
-  ]);
+
+  // Club líder (solo se aplica en el modo global si no se filtró; de lo contrario se muestra el club seleccionado)
   let topClub = { name: 'N/A', sales: 0, percentage: 0 };
-  if (topClubAgg.length) {
-    const club = await Club.findById(topClubAgg[0]._id);
-    if (club) {
+  if (!club) {
+    const topClubAgg = await Sale.aggregate([
+      { $match: salesMatch },
+      { $group: { _id: "$club", totalSales: { $sum: "$total" } } },
+      { $sort: { totalSales: -1 } },
+      { $limit: 1 }
+    ]);
+    if (topClubAgg.length) {
+      const clubDoc = await Club.findById(topClubAgg[0]._id);
+      if (clubDoc) {
+        const percentage = totalSales > 0 ? (topClubAgg[0].totalSales / totalSales) * 100 : 0;
+        topClub = {
+          name: clubDoc.clubName || clubDoc.name,
+          sales: topClubAgg[0].totalSales,
+          percentage
+        };
+      }
+    }
+  } else {
+    // Si se filtró por club, se asigna ese club como líder
+    const clubDoc = await Club.findById(club);
+    if (clubDoc) {
       topClub = {
-        name: club.clubName || club.name,
-        sales: topClubAgg[0].totalSales,
-        percentage: 0
+        name: clubDoc.clubName || clubDoc.name,
+        sales: totalSales,
+        percentage: 100
       };
     }
   }
-  
-  // Recomendaciones (ejemplo estático)
+
   const recommendations = [
     { id: 1, text: `Aumenta el stock de ${topProduct.name}`, type: 'positive' },
     { id: 2, text: 'Revisa tus gastos en servicios', type: 'negative' },
     { id: 3, text: 'Considera promociones para aumentar ventas', type: 'neutral' }
   ];
-  
+
   return {
     netProfit,
     netProfitChange,
     topProduct,
     topExpense,
     topClub,
-    recommendations
+    recommendations,
+    totalSales,
+    totalExpenses,
+    period: `${startDate.format('DD/MM/YYYY')} - ${endDate.format('DD/MM/YYYY')}`
   };
 }
 
@@ -359,44 +433,89 @@ async function getInventoryMovement(period) {
  * Reporte de Ganancias Netas:
  * Agrupa ventas y gastos por mes para calcular el resumen y un detalle mensual.
  */
-async function getNetProfit(period) {
+async function getNetProfit(period, club) {
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
   let startDate, endDate;
-  const now = new Date();
   if (period === 'weekly') {
-    startDate = moment(now).startOf('week').toDate();
-    endDate = moment(now).endOf('week').toDate();
+    startDate = now.clone().startOf('isoWeek');
+    endDate = now.clone().endOf('isoWeek');
   } else if (period === 'monthly') {
-    startDate = moment(now).startOf('month').toDate();
-    endDate = moment(now).endOf('month').toDate();
+    startDate = now.clone().startOf('month');
+    endDate = now.clone().endOf('month');
   } else {
-    startDate = moment(now).startOf('year').toDate();
-    endDate = moment(now).endOf('year').toDate();
+    startDate = now.clone().startOf('year');
+    endDate = now.clone().endOf('year');
   }
   
+  // Ventas: se usan las fechas en la zona de México
+  const salesStartDate = startDate.toDate();
+  const salesEndDate = endDate.toDate();
+  // Gastos: ajustar a UTC y desplazar 1 día
+  const expenseStartDate = moment.utc(salesStartDate).add(-1, 'day').startOf('day').toDate();
+  const expenseEndDate = moment.utc(salesEndDate).add(-1, 'day').endOf('day').toDate();
+
+  let salesMatch = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
+  let expenseMatch = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
+
+  if (club) {
+    try {
+      salesMatch.club = mongoose.Types.ObjectId(club);
+      expenseMatch.club = club;
+    } catch (error) {
+      console.error("Club ID inválido:", club);
+      return { error: "Club ID inválido" };
+    }
+  }
+  
+  // Agregación de ventas por mes (formato YYYY-MM)
   const salesAgg = await Sale.aggregate([
-    { $match: { created_at: { $gte: startDate, $lte: endDate } } },
+    { $match: salesMatch },
     { $group: { _id: { $dateToString: { format: "%Y-%m", date: "$created_at" } }, totalSales: { $sum: "$total" } } },
     { $sort: { _id: 1 } }
   ]);
+  
+  // Agregación de gastos por mes (formato YYYY-MM)
   const expensesAgg = await Expense.aggregate([
-    { $match: { date: { $gte: startDate, $lte: endDate } } },
+    { $match: expenseMatch },
     { $group: { _id: { $dateToString: { format: "%Y-%m", date: "$date" } }, totalExpenses: { $sum: "$amount" } } },
     { $sort: { _id: 1 } }
   ]);
-  const monthlySummary = salesAgg.map(sale => {
-    const expense = expensesAgg.find(exp => exp._id === sale._id);
-    const sales = sale.totalSales;
-    const expenses = expense ? expense.totalExpenses : 0;
-    return { month: sale._id.split('-')[1], sales, expenses, profit: sales - expenses };
+  
+  // Construir el resumen mensual combinando ambas agregaciones
+  let summaryMap = {};
+  salesAgg.forEach(sale => {
+    summaryMap[sale._id] = { month: sale._id.split('-')[1], sales: sale.totalSales, expenses: 0, profit: sale.totalSales };
   });
+  expensesAgg.forEach(exp => {
+    if (summaryMap[exp._id]) {
+      summaryMap[exp._id].expenses = exp.totalExpenses;
+      summaryMap[exp._id].profit = summaryMap[exp._id].sales - exp.totalExpenses;
+    } else {
+      summaryMap[exp._id] = { month: exp._id.split('-')[1], sales: 0, expenses: exp.totalExpenses, profit: -exp.totalExpenses };
+    }
+  });
+  
+  const monthlySummary = Object.keys(summaryMap)
+    .sort()
+    .map(key => summaryMap[key]);
+  
   const totalSales = salesAgg.reduce((sum, s) => sum + s.totalSales, 0);
   const totalExpenses = expensesAgg.reduce((sum, e) => sum + e.totalExpenses, 0);
   const netProfit = totalSales - totalExpenses;
-  const changePercentage = 0; // Para calcular, se necesitaría comparar con un período anterior
+  const changePercentage = 0; // Para calcular se necesitaría comparar con el período anterior
   
   return {
-    period: period === 'weekly' ? 'Semana 20, 2024' : period === 'monthly' ? 'Mayo 2024' : '2024',
-    previousPeriod: period === 'weekly' ? 'Semana 19, 2024' : period === 'monthly' ? 'Abril 2024' : '2023',
+    period: period === 'weekly' 
+      ? `Semana ${startDate.format('W, YYYY')}` 
+      : period === 'monthly' 
+        ? startDate.format('MMMM YYYY') 
+        : startDate.format('YYYY'),
+    previousPeriod: period === 'weekly' 
+      ? `Semana ${startDate.clone().subtract(1, 'week').format('W, YYYY')}` 
+      : period === 'monthly' 
+        ? startDate.clone().subtract(1, 'month').format('MMMM YYYY') 
+        : startDate.clone().subtract(1, 'year').format('YYYY'),
     totalSales,
     totalExpenses,
     netProfit,
@@ -583,18 +702,125 @@ async function getReportData(type, period) {
   }
 }
 
+async function getSalesExpensesChartData(period, club) {
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
+  let startDate, endDate;
+
+  if (period === 'weekly') {
+    startDate = now.clone().startOf('isoWeek');
+    endDate = now.clone().endOf('isoWeek');
+  } else if (period === 'monthly') {
+    startDate = now.clone().startOf('month');
+    endDate = now.clone().endOf('month');
+  } else { // yearly
+    startDate = now.clone().startOf('year');
+    endDate = now.clone().endOf('year');
+  }
+
+  // Fechas para ventas (almacenadas en zona de México)
+  const salesStartDate = startDate.toDate();
+  const salesEndDate = endDate.toDate();
+
+  // Fechas para gastos (almacenados en UTC, se desplazan 1 día)
+  const expenseStartDate = moment.utc(salesStartDate).add(-1, 'day').startOf('day').toDate();
+  const expenseEndDate = moment.utc(salesEndDate).add(-1, 'day').endOf('day').toDate();
+
+  // Construir el filtro de búsqueda para ventas y gastos
+  let salesMatch = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
+  let expenseMatch = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
+  if (club) {
+    try {
+      salesMatch.club = mongoose.Types.ObjectId(club);
+      expenseMatch.club = club;
+    } catch (error) {
+      console.error("Club ID inválido:", club);
+      return []; // Retorna un array vacío si el id no es válido
+    }
+  }
+
+  // Agregación de ventas agrupadas por día
+  const salesData = await Sale.aggregate([
+    { $match: salesMatch },
+    {
+      $group: {
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$created_at" } },
+        totalSales: { $sum: "$total" }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+
+  // Agregación de gastos agrupados por día
+  const expenseData = await Expense.aggregate([
+    { $match: expenseMatch },
+    {
+      $group: {
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+        totalExpenses: { $sum: "$amount" }
+      }
+    },
+    { $sort: { _id: 1 } }
+  ]);
+
+  // Fusionar resultados en un mapa (dataMap)
+  let dataMap = {};
+  salesData.forEach(item => {
+    dataMap[item._id] = { date: item._id, sales: item.totalSales, expenses: 0 };
+  });
+  expenseData.forEach(item => {
+    if (dataMap[item._id]) {
+      dataMap[item._id].expenses = item.totalExpenses;
+    } else {
+      dataMap[item._id] = { date: item._id, sales: 0, expenses: item.totalExpenses };
+    }
+  });
+
+  // Generar un arreglo completo con cada día entre startDate y endDate
+  let completeData = [];
+  let current = startDate.clone();
+  while (current.isSameOrBefore(endDate, 'day')) {
+    const dateStr = current.format("YYYY-MM-DD");
+    if (dataMap[dateStr]) {
+      completeData.push(dataMap[dateStr]);
+    } else {
+      completeData.push({ date: dateStr, sales: 0, expenses: 0 });
+    }
+    current.add(1, 'day');
+  }
+
+  return completeData;
+}
+
+
 router.get('/', async (req, res) => {
+  const { type, period, club } = req.query;
   try {
-    const type = req.query.type || 'executive-summary';
-    const period = req.query.period || 'monthly';
-    const reportData = await getReportData(type, period);
-    res.json(reportData);
-  } catch (error) {
-    console.error('Error obteniendo datos del reporte:', error);
-    res.status(500).json({ message: 'Error interno del servidor' });
+    if (type === 'net-profit') {
+      const result = await getNetProfit(period, club);
+      res.json(result);
+    } else if (type === 'executive-summary') {
+      const summary = await getExecutiveSummary(period, club);
+      res.json(summary);
+    } else {
+      res.status(400).json({ error: 'Tipo de reporte no soportado' });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al obtener el reporte' });
   }
 });
 
+router.get('/sales-expenses', async (req, res) => {
+  const { period, club } = req.query;
+  try {
+    const chartData = await getSalesExpensesChartData(period, club);
+    res.json(chartData);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al obtener datos de ventas y gastos' });
+  }
+});
 router.get('/export', async (req, res) => {
   try {
     const type = req.query.type || 'executive-summary';
