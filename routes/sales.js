@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Sale = require('../models/Sale');
 const Inventory = require('../models/Inventory');
+const InventoryMovement = require('../models/InventoryMovement');
 const moment = require('moment-timezone');
 
 // GET /api/sales - Obtener todas las ventas filtradas por club si se proporciona
@@ -45,11 +46,22 @@ router.post('/', async (req, res) => {
     // Actualizar inventario para cada producto sellado filtrando por club
     for (const item of items) {
       if (item.type === 'sealed') {
+        // Actualizar inventario
         await Inventory.findOneAndUpdate(
           { product_id: item.product_id, club },
           { $inc: { quantity: -item.quantity } },
           { new: true }
         );
+        
+        // Crear movimiento de inventario
+        await InventoryMovement.create({
+          club,
+          product_id: item.product_id,
+          type: 'purchase', // Tipo de movimiento para ventas
+          quantity: -item.quantity, // Cantidad negativa porque sale del inventario
+          notes: `Venta de producto - ID venta: ${sale._id}`,
+          sale_price: item.price || 0
+        });
       }
     }
 

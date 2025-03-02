@@ -10,7 +10,7 @@ const InventoryMovementSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['use_in_prepared', 'gift', 'damaged', 'restock', 'purchase', 'other'],
+    enum: ['use_in_prepared', 'gift', 'damaged', 'restock', 'purchase', 'sale', 'other'],
     required: true
   },
   quantity: {
@@ -19,7 +19,11 @@ const InventoryMovementSchema = new mongoose.Schema({
   },
   notes: String,
   purchase_price: Number,
-  sale_price: Number
+  sale_price: Number,
+  sale_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Sale'
+  },
   
 }, { timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } });
 
