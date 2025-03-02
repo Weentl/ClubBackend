@@ -74,8 +74,8 @@ async function getExecutiveSummary(period, club) {
   }
   const prevSalesStart = prevStart.toDate();
   const prevSalesEnd = prevEnd.toDate();
-  const prevExpenseStart = moment.utc(prevSalesStart).add(1, 'day').startOf('day').toDate();
-  const prevExpenseEnd = moment.utc(prevSalesEnd).add(1, 'day').endOf('day').toDate();
+  const prevExpenseStart = moment.utc(prevSalesStart).add(-1, 'day').startOf('day').toDate();
+  const prevExpenseEnd = moment.utc(prevSalesEnd).add(-1, 'day').endOf('day').toDate();
 
   let prevSalesMatch = { created_at: { $gte: prevSalesStart, $lte: prevSalesEnd } };
   let prevExpenseMatch = { date: { $gte: prevExpenseStart, $lte: prevExpenseEnd } };
@@ -192,29 +192,61 @@ async function getExecutiveSummary(period, club) {
  * Reporte de Flujo de Caja:
  * Agrega ventas y gastos diarios para formar el flujo.
  */
-async function getCashFlow(period) {
+async function getCashFlow(period, club) {
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
   let startDate, endDate;
-  const now = new Date();
   if (period === 'weekly') {
-    startDate = moment(now).startOf('week').toDate();
-    endDate = moment(now).endOf('week').toDate();
+    startDate = now.clone().startOf('isoWeek');
+    endDate = now.clone().endOf('isoWeek');
   } else if (period === 'monthly') {
-    startDate = moment(now).startOf('month').toDate();
-    endDate = moment(now).endOf('month').toDate();
+    startDate = now.clone().startOf('month');
+    endDate = now.clone().endOf('month');
   } else {
-    startDate = moment(now).startOf('year').toDate();
-    endDate = moment(now).endOf('year').toDate();
+    startDate = now.clone().startOf('year');
+    endDate = now.clone().endOf('year');
+  }
+  
+  const salesStartDate = startDate.toDate();
+  const salesEndDate = endDate.toDate();
+  const expenseStartDate = moment.utc(salesStartDate).add(-1, 'day').startOf('day').toDate();
+  const expenseEndDate = moment.utc(salesEndDate).add(-1, 'day').endOf('day').toDate();
+  
+  // Filtrado para ventas (Sales)
+  const salesMatch = {
+    created_at: { $gte: salesStartDate, $lte: salesEndDate }
+  };
+  if (club) {
+    salesMatch.club = mongoose.Types.ObjectId(club);
   }
   
   const salesDaily = await Sale.aggregate([
-    { $match: { created_at: { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$created_at" } }, total: { $sum: "$total" } } }
-  ]);
-  const expensesDaily = await Expense.aggregate([
-    { $match: { date: { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } }, total: { $sum: "$amount" } } }
+    { $match: salesMatch },
+    { $group: { 
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$created_at" } },
+        total: { $sum: "$total" }
+      } 
+    }
   ]);
   
+  // Filtrado para gastos (Expenses)
+  const expenseMatch = {
+    date: { $gte: expenseStartDate, $lte: expenseEndDate }
+  };
+  if (club) {
+    expenseMatch.club = club;
+  }
+  
+  const expensesDaily = await Expense.aggregate([
+    { $match: expenseMatch },
+    { $group: { 
+        _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+        total: { $sum: "$amount" }
+      } 
+    }
+  ]);
+  
+  // Crear un mapa con los datos diarios (ventas y gastos)
   const cashFlowMap = {};
   salesDaily.forEach(item => {
     cashFlowMap[item._id] = { inflow: item.total, outflow: 0 };
@@ -227,105 +259,129 @@ async function getCashFlow(period) {
     }
   });
   
+  // Generar el array de días dentro del período (cada día con su flujo)
   const days = [];
-  const currentDate = moment(startDate);
-  while (currentDate.isSameOrBefore(endDate, 'day')) {
-    const dateStr = currentDate.format("YYYY-MM-DD");
+  const iterDate = startDate.clone();
+  while (iterDate.isSameOrBefore(endDate, 'day')) {
+    const dateStr = iterDate.format("YYYY-MM-DD");
     const inflow = cashFlowMap[dateStr] ? cashFlowMap[dateStr].inflow : 0;
     const outflow = cashFlowMap[dateStr] ? cashFlowMap[dateStr].outflow : 0;
     days.push({ date: dateStr, inflow, outflow, balance: inflow - outflow });
-    currentDate.add(1, 'day');
+    iterDate.add(1, 'day');
   }
   
-  // Los siguientes valores pueden obtenerse de otras fuentes o cálculos
-  const currentBalance = 5000;
-  const next7DaysOutflow = 1200;
+  // Calcular el saldo actual (Disponible hoy) como la suma neta de los días hasta hoy
+  const todayStr = now.format("YYYY-MM-DD");
+  const currentBalance = days
+    .filter(day => day.date && day.date <= todayStr)
+    .reduce((acc, d) => acc + (d.inflow - d.outflow), 0);
   
-  return { currentMonth: moment(now).format("MMMM YYYY"), cashFlowData: days, currentBalance, next7DaysOutflow };
+  // Calcular la proyección: suma de salidas para los próximos 7 días (excluyendo hoy)
+  const next7DaysOutflow = days
+    .filter(day =>
+      day.date &&
+      moment(day.date).isAfter(todayStr, 'day') &&
+      moment(day.date).isSameOrBefore(now.clone().add(7, 'days'), 'day')
+    )
+    .reduce((acc, d) => acc + d.outflow, 0);
+  
+  return { 
+    currentMonth: now.format("MMMM YYYY"), 
+    cashFlowData: days, 
+    currentBalance, 
+    next7DaysOutflow 
+  };
 }
-
 /**
  * Reporte de Desempeño por Club:
  * Agrupa ventas por club y junta datos del Club.
  */
-async function getClubPerformance(period) {
+async function getClubPerformance(period, club) {
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
   let startDate, endDate;
-  const now = new Date();
+  
   if (period === 'weekly') {
-    startDate = moment(now).startOf('week').toDate();
-    endDate = moment(now).endOf('week').toDate();
+    startDate = now.clone().startOf('isoWeek');
+    endDate = now.clone().endOf('isoWeek');
   } else if (period === 'monthly') {
-    startDate = moment(now).startOf('month').toDate();
-    endDate = moment(now).endOf('month').toDate();
+    startDate = now.clone().startOf('month');
+    endDate = now.clone().endOf('month');
   } else {
-    startDate = moment(now).startOf('year').toDate();
-    endDate = moment(now).endOf('year').toDate();
+    startDate = now.clone().startOf('year');
+    endDate = now.clone().endOf('year');
   }
   
-  const clubsAgg = await Sale.aggregate([
-    { $match: { created_at: { $gte: startDate, $lte: endDate } } },
-    { $group: { _id: "$club", totalSales: { $sum: "$total" } } },
-    { $sort: { totalSales: -1 } }
-  ]);
-  
-  const clubsData = await Promise.all(clubsAgg.map(async item => {
-    const club = await Club.findById(item._id).lean();
-    return club ? {
-      id: club._id,
-      name: club.clubName || club.name,
-      address: club.address,
-      sales: item.totalSales,
-      expenses: 0, // Podrías agregar una agregación de gastos para cada club
-      profit: item.totalSales, // Simplificado
-      employees: club.employee_count || 0,
-      customers: 0,
-      inventory: club.inventory_count || 0,
-      salesChange: 0,
-      isActive: club.is_active
-    } : null;
-  }));
-  
-  return { clubsData: clubsData.filter(c => c !== null) };
-}
+  const salesStartDate = startDate.toDate();
+  const salesEndDate = endDate.toDate();
+  const expenseStartDate = moment.utc(salesStartDate).add(-1, 'day').startOf('day').toDate();
+  const expenseEndDate = moment.utc(salesEndDate).add(-1, 'day').endOf('day').toDate();
 
-/**
- * Reporte de Gastos:
- * Consulta los gastos reales del período.
- */
-async function getExpenses(period) {
-  let startDate, endDate;
-  const now = new Date();
-  if (period === 'weekly') {
-    startDate = moment(now).startOf('week').toDate();
-    endDate = moment(now).endOf('week').toDate();
-  } else if (period === 'monthly') {
-    startDate = moment(now).startOf('month').toDate();
-    endDate = moment(now).endOf('month').toDate();
-  } else {
-    startDate = moment(now).startOf('year').toDate();
-    endDate = moment(now).endOf('year').toDate();
+  // Construir los filtros para ventas y gastos
+  let salesMatch = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
+  let expenseMatch = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
+  if (club) {
+    salesMatch.club = mongoose.Types.ObjectId(club);
+    expenseMatch.club = club; // Asumiendo que Expense también posee el campo club
   }
-  
-  const expensesData = await Expense.find({ date: { $gte: startDate, $lte: endDate } }).lean();
-  const categoryTotals = expensesData.reduce((acc, expense) => {
-    if (!acc[expense.category]) acc[expense.category] = 0;
-    acc[expense.category] += expense.amount;
-    return acc;
-  }, {});
-  const totalExpenses = Object.values(categoryTotals).reduce((sum, amt) => sum + amt, 0);
-  const categoryPercentages = Object.entries(categoryTotals).map(([category, amt]) => ({
-    category,
-    amount: amt,
-    percentage: Math.round((amt / totalExpenses) * 100)
+
+  // Agregar ventas del período actual
+  const clubsSalesAgg = await Sale.aggregate([
+    { $match: salesMatch },
+    { $group: { _id: "$club", totalSales: { $sum: "$total" } } }
+  ]);
+
+  // Agregar gastos del período actual
+  const clubsExpenseAgg = await Expense.aggregate([
+    { $match: expenseMatch },
+    { $group: { _id: "$club", totalExpenses: { $sum: "$amount" } } }
+  ]);
+
+  // Construir diccionarios para acceso rápido
+  const salesDict = {};
+  clubsSalesAgg.forEach(item => {
+    salesDict[item._id.toString()] = item.totalSales;
+  });
+  const expenseDict = {};
+  clubsExpenseAgg.forEach(item => {
+    expenseDict[item._id.toString()] = item.totalExpenses;
+  });
+
+  // Obtener la lista de clubs a partir de las claves de ambos diccionarios
+  const clubIdsSet = new Set([...Object.keys(salesDict), ...Object.keys(expenseDict)]);
+  const clubsData = await Promise.all(Array.from(clubIdsSet).map(async clubId => {
+    const clubInfo = await Club.findById(clubId).lean();
+    if (!clubInfo) return null;
+    const currentSales = salesDict[clubId] || 0;
+    const currentExpenses = expenseDict[clubId] || 0;
+    const profit = currentSales - currentExpenses;
+    return {
+      id: clubInfo._id,
+      name: clubInfo.clubName || clubInfo.name,
+      address: clubInfo.address,
+      sales: currentSales,
+      expenses: currentExpenses,
+      profit: profit,
+      employees: clubInfo.employee_count || 0,
+      customers: clubInfo.customers_count || 0,
+      inventory: clubInfo.inventory_count || 0,
+      salesChange: 0, // Aquí podrías calcular el cambio de ventas comparado con el período anterior
+      isActive: clubInfo.is_active
+    };
   }));
-  const criticalExpenses = expensesData
-    .filter(expense => (expense.amount / totalExpenses) >= 0.15)
-    .map(expense => ({ ...expense, percentage: Math.round((expense.amount / totalExpenses) * 100) }));
-  const alerts = [
-    { id: 1, message: 'El gasto en Servicios aumentó un 30% respecto al mes anterior', category: 'Servicios' }
-  ];
-  
-  return { expensesData, categoryTotals, totalExpenses, categoryPercentages, criticalExpenses, alerts };
+  const filteredClubsData = clubsData.filter(c => c !== null);
+
+  // Calcular totales globales a partir de los clubs obtenidos
+  const globalSales = filteredClubsData.reduce((sum, club) => sum + club.sales, 0);
+  const globalExpenses = filteredClubsData.reduce((sum, club) => sum + club.expenses, 0);
+  const globalProfit = globalSales - globalExpenses;
+
+  return { 
+    clubsData: filteredClubsData, 
+    globalSales, 
+    globalExpenses, 
+    globalProfit 
+  };
 }
 
 /**
@@ -392,42 +448,103 @@ async function getFutureProjections(period) {
  * Reporte de Movimientos de Inventario:
  * Consulta movimientos de inventario y realiza cálculos de totales.
  */
-async function getInventoryMovement(period) {
+async function getInventoryMovement(period, club) {
   let startDate, endDate;
   const now = new Date();
+
   if (period === 'weekly') {
-    startDate = moment(now).startOf('week').toDate();
-    endDate = moment(now).endOf('week').toDate();
+    // Usamos isoWeek para que el inicio sea el lunes y el fin el domingo
+    startDate = moment(now).startOf('isoWeek').toDate();
+    endDate = moment(now).endOf('isoWeek').toDate();
   } else if (period === 'monthly') {
     startDate = moment(now).startOf('month').toDate();
     endDate = moment(now).endOf('month').toDate();
-  } else {
+  } else { // yearly
     startDate = moment(now).startOf('year').toDate();
     endDate = moment(now).endOf('year').toDate();
   }
-  const movements = await InventoryMovement.find({ created_at: { $gte: startDate, $lte: endDate } }).lean();
-  // Para cada movimiento, obtener información del producto
-  const inventoryData = await Promise.all(movements.map(async movement => {
-    const product = await Product.findById(movement.product_id).lean();
+
+  // Consulta de movimientos dentro del período
+  const periodQuery = {
+    created_at: { $gte: startDate, $lte: endDate }
+  };
+  if (club) {
+    periodQuery.club = club;
+  }
+  const periodMovements = await InventoryMovement.find(periodQuery).lean();
+
+  // Agrupar movimientos por producto
+  const productMap = {};
+  const netMovementMap = {};
+
+  periodMovements.forEach(movement => {
+    const productId = movement.product_id.toString();
+    if (!productMap[productId]) {
+      productMap[productId] = { inflow: 0, outflow: 0, movements: [] };
+      netMovementMap[productId] = 0;
+    }
+    // Almacenamos el movimiento para luego enviarlo al frontend
+    productMap[productId].movements.push(movement);
+    // Para ingresos (restock o purchase) sumamos la cantidad
+    if (movement.type === 'restock' || movement.type === 'purchase') {
+      productMap[productId].inflow += movement.quantity;
+      netMovementMap[productId] += movement.quantity;
+    } else {
+      // Para salidas, sumamos el valor absoluto para el reporte,
+      // pero en el neto se utiliza el valor con signo (normalmente negativo)
+      productMap[productId].outflow += Math.abs(movement.quantity);
+      netMovementMap[productId] += movement.quantity;
+    }
+  });
+
+  // Para cada producto, calcular el stock inicial a partir de movimientos anteriores al período
+  const inventoryDataPromises = Object.keys(productMap).map(async productId => {
+    const previousQuery = {
+      product_id: productId,
+      created_at: { $lt: startDate }
+    };
+    if (club) {
+      previousQuery.club = club;
+    }
+    const previousMovements = await InventoryMovement.find(previousQuery).lean();
+    let initialStock = 0;
+    previousMovements.forEach(m => {
+      initialStock += m.quantity;
+    });
+
+    // Obtener información del producto
+    const product = await Product.findById(productId).lean();
+    const inflow = productMap[productId].inflow;
+    const outflow = productMap[productId].outflow;
+    const netPeriod = netMovementMap[productId];
+    const currentStock = initialStock + netPeriod;
+
     return {
-      id: movement._id,
+      id: productId,
       name: product ? product.name : 'N/A',
       category: product ? product.category : 'N/A',
-      initialStock: 0, // Este valor requeriría lógica adicional
-      inflow: (movement.type === 'restock' || movement.type === 'purchase') ? movement.quantity : 0,
-      outflow: (movement.type !== 'restock' && movement.type !== 'purchase') ? movement.quantity : 0,
-      currentStock: 0, // Requiere cálculo a partir del inventario real
-      rotationDays: 0,
-      rotationChange: 0,
-      alert: movement.notes || ''
+      initialStock,
+      inflow,
+      outflow,
+      currentStock,
+      rotationDays: 0,    // Lógica pendiente para rotación
+      rotationChange: 0,  // Lógica pendiente para cambio en rotación
+      alert: '',          // Puedes agregar lógica de alertas según criterios definidos
+      movements: productMap[productId].movements || [] // Aseguramos que sea un arreglo
     };
-  }));
+  });
+
+  const inventoryData = await Promise.all(inventoryDataPromises);
+
+  // Totales generales
   const totalInflow = inventoryData.reduce((sum, item) => sum + item.inflow, 0);
   const totalOutflow = inventoryData.reduce((sum, item) => sum + item.outflow, 0);
   const totalStock = inventoryData.reduce((sum, item) => sum + item.currentStock, 0);
   const categories = Array.from(new Set(inventoryData.map(item => item.category)));
+
   return { inventoryData, totalInflow, totalOutflow, totalStock, categories };
 }
+
 
 /**
  * Reporte de Ganancias Netas:
@@ -529,15 +646,40 @@ async function getNetProfit(period, club) {
  * Reporte de Margen de Producto:
  * Consulta productos y calcula el margen, porcentaje y ganancia total en ventas.
  */
-async function getProductMargin(period) {
-  // Se obtienen todos los productos y se agregan las ventas acumuladas.
-  const products = await Product.find({}).lean();
+async function getProductMargin(period, club) {
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
+  let startDate, endDate;
+  
+  if (period === 'weekly') {
+    startDate = now.clone().startOf('isoWeek').toDate();
+    endDate = now.clone().endOf('isoWeek').toDate();
+  } else if (period === 'monthly') {
+    startDate = now.clone().startOf('month').toDate();
+    endDate = now.clone().endOf('month').toDate();
+  } else {
+    startDate = now.clone().startOf('year').toDate();
+    endDate = now.clone().endOf('year').toDate();
+  }
+
+  // Filtrar productos por club si se envía
+  const productQuery = club ? { club } : {};
+  const products = await Product.find(productQuery).lean();
+
+  // Agregar el filtro por fechas para ventas (Sales)
+  const saleMatch = {
+    created_at: { $gte: startDate, $lte: endDate }
+  };
+  if (club) {
+    saleMatch.club = mongoose.Types.ObjectId(club);
+  }
+
   const salesAgg = await Sale.aggregate([
-    { $match: { created_at: { $gte: new Date("2024-01-01"), $lte: new Date() } } },
+    { $match: saleMatch },
     { $unwind: "$items" },
     { $group: { _id: "$items.product_id", totalQuantity: { $sum: "$items.quantity" } } }
   ]);
-  
+
   const productsData = products.map(prod => {
     const saleData = salesAgg.find(s => s._id.toString() === prod._id.toString());
     const salesQuantity = saleData ? saleData.totalQuantity : 0;
@@ -556,105 +698,183 @@ async function getProductMargin(period) {
       totalProfit
     };
   });
-  
+
   const avgMarginPercentage = productsData.reduce((sum, p) => sum + p.marginPercentage, 0) / productsData.length;
   const totalProfitAll = productsData.reduce((sum, p) => sum + p.totalProfit, 0);
-  const mostProfitableProduct = productsData.reduce((prev, curr) => prev.marginPercentage > curr.marginPercentage ? prev : curr);
-  const highestProfitProduct = productsData.reduce((prev, curr) => prev.totalProfit > curr.totalProfit ? prev : curr);
-  
-  return { productsData, avgMarginPercentage, totalProfit: totalProfitAll, mostProfitableProduct, highestProfitProduct };
+  const mostProfitableProduct = productsData.reduce((prev, curr) =>
+    prev.marginPercentage > curr.marginPercentage ? prev : curr
+  );
+  const highestProfitProduct = productsData.reduce((prev, curr) =>
+    prev.totalProfit > curr.totalProfit ? prev : curr
+  );
+
+  return {
+    productsData,
+    avgMarginPercentage,
+    totalProfit: totalProfitAll,
+    mostProfitableProduct,
+    highestProfitProduct
+  };
 }
 
 /**
  * Reporte de Ventas:
  * Consulta ventas reales y procesa los datos.
  */
-async function getSales(period) {
+async function getSales(period, club) {
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
   let startDate, endDate;
-  const now = new Date();
   if (period === 'weekly') {
-    startDate = moment(now).startOf('week').toDate();
-    endDate = moment(now).endOf('week').toDate();
+    startDate = now.clone().startOf('isoWeek');
+    endDate = now.clone().endOf('isoWeek');
   } else if (period === 'monthly') {
-    startDate = moment(now).startOf('month').toDate();
-    endDate = moment(now).endOf('month').toDate();
+    startDate = now.clone().startOf('month');
+    endDate = now.clone().endOf('month');
   } else {
-    startDate = moment(now).startOf('year').toDate();
-    endDate = moment(now).endOf('year').toDate();
+    startDate = now.clone().startOf('year');
+    endDate = now.clone().endOf('year');
   }
   
-  const salesDataRaw = await Sale.find({ created_at: { $gte: startDate, $lte: endDate } }).lean();
+  const salesStartDate = startDate.toDate();
+  const salesEndDate = endDate.toDate();
+  
+  // Construir query de ventas con filtro opcional de club
+  let query = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
+  if (club) {
+    try {
+      query.club = mongoose.Types.ObjectId(club);
+    } catch (error) {
+      console.error("Club ID inválido:", club);
+    }
+  }
+  
+  // Se usa populate para obtener el nombre y la categoría del producto, y el nombre del club
+  const salesDataRaw = await Sale.find(query)
+    .populate('items.product_id', 'name category')
+    .populate('club', 'clubName name')
+    .lean();
+    
   let flatSales = [];
   salesDataRaw.forEach(sale => {
     sale.items.forEach(item => {
       flatSales.push({
-        product: item.product_id, // Se podría hacer populate para obtener el nombre
+        product: item.product_id ? item.product_id.name : 'N/A',
+        category: item.product_id ? item.product_id.category : 'Sin categoría',
         quantity: item.quantity,
         revenue: item.unit_price * item.quantity,
-        club: sale.club,
+        club: sale.club ? (sale.club.clubName || sale.club.name || 'N/A') : 'N/A',
         type: item.type
       });
     });
   });
+  
   const totalRevenue = flatSales.reduce((sum, s) => sum + s.revenue, 0);
   const totalQuantity = flatSales.reduce((sum, s) => sum + s.quantity, 0);
-  const topProducts = [...flatSales].sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+  const topProducts = [...flatSales]
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
   
+  // Agrupar las ventas planas por día para el gráfico de ventas diarias
   const dailySalesAgg = await Sale.aggregate([
-    { $match: { created_at: { $gte: startDate, $lte: endDate } } },
+    { $match: query },
     { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$created_at" } }, sales: { $sum: "$total" } } },
     { $sort: { _id: 1 } }
   ]);
+  
   const dailySales = dailySalesAgg.map(item => ({
     day: item._id.substr(8, 2),
     sales: item.sales
   }));
   
-  // Distribución por categoría: este ejemplo es estático; se podría derivar de la información de productos
-  const categoryData = [
-    { name: 'Suplementos', percentage: 60, value: 3150 },
-    { name: 'Preparados', percentage: 40, value: 1920 },
-  ];
+  // Calcular la distribución por categoría a partir de los datos reales
+  const categoryMap = {};
+  flatSales.forEach(item => {
+    const cat = item.category || 'Sin categoría';
+    if (!categoryMap[cat]) {
+      categoryMap[cat] = 0;
+    }
+    categoryMap[cat] += item.revenue;
+  });
+  const categoryData = Object.keys(categoryMap).map(cat => ({
+    name: cat,
+    value: Math.round(categoryMap[cat]),
+    percentage: totalRevenue > 0 ? Math.round((categoryMap[cat] / totalRevenue) * 100) : 0
+  }));
   
-  return { salesData: flatSales, totalRevenue, totalQuantity, topProducts, dailySales, categoryData };
+  return { 
+    salesData: flatSales, 
+    totalRevenue, 
+    totalQuantity, 
+    topProducts, 
+    dailySales, 
+    categoryData 
+  };
 }
-
 /**
  * Reporte de Historial de Movimientos:
  * Combina transacciones de ventas, gastos y ajustes.
  */
-async function getTransactionHistory(period) {
+async function getTransactionHistory(period, club) {
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
   let startDate, endDate;
-  const now = new Date();
+
+  // Para ventas usamos la hora de México - MISMO CÓDIGO QUE EN getSales()
   if (period === 'weekly') {
-    startDate = moment(now).startOf('week').toDate();
-    endDate = moment(now).endOf('week').toDate();
+    startDate = now.clone().startOf('isoWeek');
+    endDate = now.clone().endOf('isoWeek');
   } else if (period === 'monthly') {
-    startDate = moment(now).startOf('month').toDate();
-    endDate = moment(now).endOf('month').toDate();
+    startDate = now.clone().startOf('month');
+    endDate = now.clone().endOf('month');
   } else {
-    startDate = moment(now).startOf('year').toDate();
-    endDate = moment(now).endOf('year').toDate();
+    startDate = now.clone().startOf('year');
+    endDate = now.clone().endOf('year');
+  }
+
+  const salesStartDate = startDate.toDate();
+  const salesEndDate = endDate.toDate();
+  const expenseStartDate = moment.utc(salesStartDate).add(-1, 'day').startOf('day').toDate();
+  const expenseEndDate = moment.utc(salesEndDate).add(-1, 'day').endOf('day').toDate();
+
+  // Ventas: usar el rango en México
+  const salesQuery = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
+  if (club) {
+    try {
+      salesQuery.club = mongoose.Types.ObjectId(club);
+    } catch (error) {
+      console.error("Club ID inválido:", club);
+    }
   }
   
-  // Ventas
-  const sales = await Sale.find({ created_at: { $gte: startDate, $lte: endDate } }).lean();
+  console.log("Query de ventas:", salesQuery);
+  const sales = await Sale.find(salesQuery).lean();
   const salesTransactions = [];
+  
+  // Corregido: crear una sola transacción por venta
   for (const sale of sales) {
-    sale.items.forEach(item => {
-      salesTransactions.push({
-        id: sale._id,
-        date: sale.created_at,
-        type: 'sale',
-        description: `Venta de producto ${item.product_id}`,
-        amount: sale.total,
-        category: 'Sales',
-        reference: `Venta #${sale._id}`
-      });
+    salesTransactions.push({
+      id: sale._id,
+      date: sale.created_at,
+      type: 'sale',
+      description: `Venta de ${sale.items.length} producto(s)`,
+      amount: sale.total,
+      category: 'Sales',
+      reference: `Venta #${sale._id}`
     });
   }
-  // Gastos
-  const expenses = await Expense.find({ date: { $gte: startDate, $lte: endDate } }).lean();
+
+  // Gastos: usar el rango en UTC
+  const expenseQuery = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
+  if (club) {
+    try {
+      expenseQuery.club = mongoose.Types.ObjectId(club);
+    } catch (error) {
+      console.error("Club ID inválido:", club);
+    }
+  }
+  
+  const expenses = await Expense.find(expenseQuery).lean();
   const expenseTransactions = expenses.map(expense => ({
     id: expense._id,
     date: expense.date,
@@ -664,25 +884,33 @@ async function getTransactionHistory(period) {
     category: expense.category,
     reference: expense.receipt_url || ''
   }));
-  // Ajustes de inventario (por ejemplo, de movimientos con tipo 'other')
-  const adjustments = await InventoryMovement.find({ 
-    created_at: { $gte: startDate, $lte: endDate },
-    type: 'other'
-  }).lean();
-  const adjustmentTransactions = adjustments.map(adj => ({
-    id: adj._id,
-    date: adj.created_at,
-    type: 'adjustment',
-    description: adj.notes || 'Ajuste de inventario',
-    amount: -Math.abs(adj.quantity),
-    category: 'Inventory',
-    reference: ''
-  }));
-  
-  const transactionsData = [...salesTransactions, ...expenseTransactions, ...adjustmentTransactions];
+
+  const transactionsData = [...salesTransactions, ...expenseTransactions];
   transactionsData.sort((a, b) => new Date(a.date) - new Date(b.date));
-  return { transactionsData };
+  
+  // Crear etiqueta del período y rango de fechas para mostrar en el frontend
+  let periodLabel = "";
+  if (period === 'weekly') {
+    periodLabel = "Semana actual";
+  } else if (period === 'monthly') {
+    periodLabel = "Mes actual";
+  } else {
+    periodLabel = "Año actual";
+  }
+  
+  // Formatear fechas para el rango en el mismo formato que usa getSales
+  const periodRange = {
+    start: startDate.format('YYYY-MM-DD'),
+    end: endDate.format('YYYY-MM-DD')
+  };
+  
+  return { 
+    transactionsData, 
+    periodLabel,
+    periodRange
+  };
 }
+
 
 // Función central que llama a cada función según el tipo de reporte
 async function getReportData(type, period) {
@@ -792,17 +1020,108 @@ async function getSalesExpensesChartData(period, club) {
   return completeData;
 }
 
+async function getExpenses(period, club) {
+  // Usar la zona "America/Mexico_City" para definir el período
+  const mexicoTz = "America/Mexico_City";
+  const now = moment.tz(mexicoTz);
+  let startDate, endDate;
+  if (period === 'weekly') {
+    startDate = now.clone().startOf('isoWeek');
+    endDate = now.clone().endOf('isoWeek');
+  } else if (period === 'monthly') {
+    startDate = now.clone().startOf('month');
+    endDate = now.clone().endOf('month');
+  } else { // yearly
+    startDate = now.clone().startOf('year');
+    endDate = now.clone().endOf('year');
+  }
+  
+  // Ajuste para gastos: convertir las fechas a UTC y desplazar 1 día para tener el rango de 12am a 12am
+  const expenseStartDate = moment.utc(startDate.toDate()).add(-1, 'day').startOf('day').toDate();
+  const expenseEndDate = moment.utc(endDate.toDate()).add(-1, 'day').endOf('day').toDate();
+  
+  // Construir la consulta con filtro opcional de club
+  let query = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
+  if (club) {
+    try {
+      query.club = mongoose.Types.ObjectId(club);
+    } catch (error) {
+      console.error("Club ID inválido:", club);
+    }
+  }
+  
+  // Extraer los gastos reales
+  const expensesData = await Expense.find(query).lean();
+  
+  // Totales por categoría
+  const categoryTotals = expensesData.reduce((acc, expense) => {
+    if (!acc[expense.category]) acc[expense.category] = 0;
+    acc[expense.category] += expense.amount;
+    return acc;
+  }, {});
+  
+  const totalExpenses = Object.values(categoryTotals).reduce((sum, amt) => sum + amt, 0);
+  
+  // Calcular porcentajes por categoría
+  const categoryPercentages = Object.entries(categoryTotals).map(([category, amt]) => ({
+    category,
+    amount: amt,
+    percentage: totalExpenses > 0 ? Math.round((amt / totalExpenses) * 100) : 0
+  }));
+  
+  // Filtrar gastos críticos (por ejemplo, aquellos que representan al menos el 15% del total)
+  const criticalExpenses = expensesData
+    .filter(expense => totalExpenses > 0 && (expense.amount / totalExpenses) >= 0.15)
+    .map(expense => ({
+      ...expense,
+      percentage: Math.round((expense.amount / totalExpenses) * 100)
+    }));
+  
+  // Alertas (ejemplo real; en producción se calcularían comparando con períodos anteriores)
+  const alerts = [
+    { id: 1, message: 'El gasto en Servicios aumentó un 30% respecto al mes anterior', category: 'Servicios' }
+  ];
+  
+  return { expensesData, categoryTotals, totalExpenses, categoryPercentages, criticalExpenses, alerts };
+}
 
 router.get('/', async (req, res) => {
   const { type, period, club } = req.query;
   try {
-    if (type === 'net-profit') {
+    if (type === 'product-margin') {
+      const result = await getProductMargin(period, club);
+      res.json(result);
+    } else if (type === 'inventory-movement') {
+      const result = await getInventoryMovement(period, club);
+      res.json(result);
+    } else if (type === 'expenses') {
+      const result = await getExpenses(period, club);
+      res.json(result);
+    } else if (type === 'sales') {
+      const result = await getSales(period, club);
+      res.json(result);
+    } else if (type === 'net-profit') {
       const result = await getNetProfit(period, club);
       res.json(result);
     } else if (type === 'executive-summary') {
       const summary = await getExecutiveSummary(period, club);
       res.json(summary);
-    } else {
+    } else if (type === 'cash-flow') {  // Flujo de caja
+      const result = await getCashFlow(period, club);
+      res.json(result);
+    } else if (type === 'club-performance') {
+      const result = await getClubPerformance(period, club);
+      res.json(result);
+    } else if (type === 'transaction-history') {
+      const result = await getTransactionHistory(period, club);
+      res.json(result);
+    } else if (type === 'future-projections') {
+      // Temporalmente devuelve los datos de prueba, pero en producción podría devolver un mensaje
+      // indicando que la característica estará disponible próximamente
+      const result = await getFutureProjections(period);
+      res.json(result);
+    }
+    else {
       res.status(400).json({ error: 'Tipo de reporte no soportado' });
     }
   } catch (err) {
