@@ -14,6 +14,7 @@ const employeeRoutes = require('./routes/employees');
 const reportsRoutes = require('./routes/reports'); // Importa el endpoint de reportes
 const expensesRoutes = require('./routes/expenses'); // Importa las rutas de gastos
 const userRoutes = require('./routes/userRoutes');
+require('dotenv').config();
 
 
 const app = express();
@@ -21,7 +22,7 @@ const app = express();
 
 // Habilitar CORS para todos los orígenes (puedes restringirlo en producción)
 app.use(cors({
-  origin: ['https://myadclub.netlify.app', 'http://localhost:3000'], // Add any other origins you need
+  origin: ['https://myadclub.netlify.app', 'http://localhost:5173'], // Add any other origins you need
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -39,7 +40,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Conexión a MongoDB
 mongoose
-  .connect('mongodb+srv://Glowel:zujNCzJxnjuSsx3A@myclub.v10xz.mongodb.net/?retryWrites=true&w=majority&appName=MyClub', {
+  .connect(process.env.MONGODB_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true,
   })
