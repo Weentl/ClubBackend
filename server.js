@@ -20,7 +20,15 @@ const app = express();
 
 
 // Habilitar CORS para todos los orígenes (puedes restringirlo en producción)
-app.use(cors());
+app.use(cors({
+  origin: ['https://myadclub.netlify.app', 'http://localhost:3000'], // Add any other origins you need
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
+// Add a pre-flight handler for OPTIONS requests
+app.options('*', cors());
 
 // Middlewares
 app.use(express.json({ limit: '10mb' }));
