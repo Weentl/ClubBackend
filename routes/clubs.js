@@ -36,6 +36,10 @@ router.post('/', async (req, res) => {
 
 // Actualizar un club existente por su id
 router.put('/:id', async (req, res) => {
+  if (req.body.name) {
+    req.body.clubName = req.body.name;
+    delete req.body.name;
+  }
   try {
     const updatedClub = await Club.findByIdAndUpdate(req.params.id, req.body, { new: true });
     if (!updatedClub) return res.status(404).json({ error: 'Club no encontrado' });
