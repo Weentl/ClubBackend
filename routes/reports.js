@@ -9,6 +9,7 @@ const Expense = require('../models/Expense');
 const Product = require('../models/Product');
 const InventoryMovement = require('../models/InventoryMovement');
 const Club = require('../models/Club');
+const  authMiddleware = require('../middleware/auth');
 // Se pueden importar otros modelos (Client, Inventory, etc.) según sea necesario
 
 /**
@@ -40,8 +41,15 @@ async function getExecutiveSummary(period, club) {
   let salesMatch = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
   let expenseMatch = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
   if (club) {
-    salesMatch.club = mongoose.Types.ObjectId(club);
-    expenseMatch.club = club; // Asumiendo que Expense también posee el campo club
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      salesMatch.club = { $in: club.map(id => mongoose.Types.ObjectId(id)) };
+      expenseMatch.club = { $in: club };
+    } else {
+      // Filtro para un club específico
+      salesMatch.club = mongoose.Types.ObjectId(club);
+      expenseMatch.club = club;
+    }
   }
 
   // Total de ventas
@@ -217,9 +225,14 @@ async function getCashFlow(period, club) {
     created_at: { $gte: salesStartDate, $lte: salesEndDate }
   };
   if (club) {
-    salesMatch.club = mongoose.Types.ObjectId(club);
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      salesMatch.club = { $in: club.map(id => mongoose.Types.ObjectId(id)) };
+    } else {
+      // Filtro para un club específico
+      salesMatch.club = mongoose.Types.ObjectId(club);
+    }
   }
-  
   const salesDaily = await Sale.aggregate([
     { $match: salesMatch },
     { $group: { 
@@ -234,7 +247,13 @@ async function getCashFlow(period, club) {
     date: { $gte: expenseStartDate, $lte: expenseEndDate }
   };
   if (club) {
-    expenseMatch.club = club;
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      expenseMatch.club = { $in: club };
+    } else {
+      // Filtro para un club específico
+      expenseMatch.club = (club);
+    }
   }
   
   const expensesDaily = await Expense.aggregate([
@@ -321,8 +340,15 @@ async function getClubPerformance(period, club) {
   let salesMatch = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
   let expenseMatch = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
   if (club) {
-    salesMatch.club = mongoose.Types.ObjectId(club);
-    expenseMatch.club = club; // Asumiendo que Expense también posee el campo club
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      salesMatch.club = { $in: club.map(id => mongoose.Types.ObjectId(id)) };
+      expenseMatch.club = { $in: club };
+    } else {
+      // Filtro para un club específico
+      salesMatch.club = mongoose.Types.ObjectId(club);
+      expenseMatch.club = club;
+    }
   }
 
   // Agregar ventas del período actual
@@ -469,8 +495,18 @@ async function getInventoryMovement(period, club) {
     created_at: { $gte: startDate, $lte: endDate }
   };
   if (club) {
-    periodQuery.club = club;
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      periodQuery.club = { $in: club.map(club => mongoose.Types.ObjectId(club)) };
+
+    } else {
+      // Filtro para un club específico
+      periodQuery.club = mongoose.Types.ObjectId(club);
+
+    }
   }
+
+  
   const periodMovements = await InventoryMovement.find(periodQuery).lean();
 
   // Agrupar movimientos por producto
@@ -503,8 +539,17 @@ async function getInventoryMovement(period, club) {
       product_id: productId,
       created_at: { $lt: startDate }
     };
+
     if (club) {
-      previousQuery.club = club;
+      if (Array.isArray(club)) {
+        // En modo global, club es un arreglo de IDs: se usa el operador $in
+        previousQuery.club = { $in: club.map(club => mongoose.Types.ObjectId(club)) };
+  
+      } else {
+        // Filtro para un club específico
+        previousQuery.club = mongoose.Types.ObjectId(club);
+  
+      }
     }
     const previousMovements = await InventoryMovement.find(previousQuery).lean();
     let initialStock = 0;
@@ -576,14 +621,17 @@ async function getNetProfit(period, club) {
   let expenseMatch = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
 
   if (club) {
-    try {
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      salesMatch.club = { $in: club.map(id => mongoose.Types.ObjectId(id)) };
+      expenseMatch.club = { $in: club };
+    } else {
+      // Filtro para un club específico
       salesMatch.club = mongoose.Types.ObjectId(club);
       expenseMatch.club = club;
-    } catch (error) {
-      console.error("Club ID inválido:", club);
-      return { error: "Club ID inválido" };
     }
   }
+
   
   // Agregación de ventas por mes (formato YYYY-MM)
   const salesAgg = await Sale.aggregate([
@@ -670,8 +718,17 @@ async function getProductMargin(period, club) {
   const saleMatch = {
     created_at: { $gte: startDate, $lte: endDate }
   };
+
   if (club) {
-    saleMatch.club = mongoose.Types.ObjectId(club);
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      saleMatch.club = { $in: club.map(id => mongoose.Types.ObjectId(id)) };
+
+    } else {
+      // Filtro para un club específico
+      saleMatch.club = mongoose.Types.ObjectId(club);
+
+    }
   }
 
   const salesAgg = await Sale.aggregate([
@@ -741,11 +798,25 @@ async function getSales(period, club) {
   
   // Construir query de ventas con filtro opcional de club
   let query = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
+
+  
   if (club) {
     try {
       query.club = mongoose.Types.ObjectId(club);
     } catch (error) {
       console.error("Club ID inválido:", club);
+    }
+  }
+
+  if (club) {
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      query.club = { $in: club.map(club => mongoose.Types.ObjectId(club)) };
+
+    } else {
+      // Filtro para un club específico
+      query.club = mongoose.Types.ObjectId(club);
+
     }
   }
   
@@ -839,13 +910,20 @@ async function getTransactionHistory(period, club) {
 
   // Ventas: usar el rango en México
   const salesQuery = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
+
+
   if (club) {
-    try {
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      salesQuery.club = { $in: club.map(club => mongoose.Types.ObjectId(club)) };
+
+    } else {
+      // Filtro para un club específico
       salesQuery.club = mongoose.Types.ObjectId(club);
-    } catch (error) {
-      console.error("Club ID inválido:", club);
+
     }
   }
+  
   
   console.log("Query de ventas:", salesQuery);
   const sales = await Sale.find(salesQuery).lean();
@@ -1043,10 +1121,14 @@ async function getExpenses(period, club) {
   // Construir la consulta con filtro opcional de club
   let query = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
   if (club) {
-    try {
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      query.club = { $in: club.map(club => mongoose.Types.ObjectId(club)) };
+
+    } else {
+      // Filtro para un club específico
       query.club = mongoose.Types.ObjectId(club);
-    } catch (error) {
-      console.error("Club ID inválido:", club);
+
     }
   }
   
@@ -1084,36 +1166,54 @@ async function getExpenses(period, club) {
   
   return { expensesData, categoryTotals, totalExpenses, categoryPercentages, criticalExpenses, alerts };
 }
-
-router.get('/', async (req, res) => {
+async function getClubsForUser(userId) {
+  try {
+    console.log('Obteniendo clubes para el usuario:', userId);
+    const clubs = await Club.find({ user: userId });
+    return clubs.map(club => club._id.toString());
+  } catch (err) {
+    console.error('Error al obtener clubes para el usuario:', err);
+    return [];
+  }
+}
+router.get('/', authMiddleware, async (req, res) => {
   const { type, period, club } = req.query;
+  let clubFilter = club;
+
+  if (club === 'global') {
+    clubFilter = await getClubsForUser(req.userId);
+    console.log('Clubes para el usuario:', clubFilter);
+    // Ahora clubFilter es un arreglo de IDs, que las funciones de reporte deberán manejar
+  }
+
+  
   try {
     if (type === 'product-margin') {
-      const result = await getProductMargin(period, club);
+      const result = await getProductMargin(period, clubFilter);
       res.json(result);
     } else if (type === 'inventory-movement') {
-      const result = await getInventoryMovement(period, club);
+      const result = await getInventoryMovement(period, clubFilter);
       res.json(result);
     } else if (type === 'expenses') {
-      const result = await getExpenses(period, club);
+      const result = await getExpenses(period, clubFilter);
       res.json(result);
     } else if (type === 'sales') {
-      const result = await getSales(period, club);
+      const result = await getSales(period, clubFilter);
       res.json(result);
     } else if (type === 'net-profit') {
-      const result = await getNetProfit(period, club);
+      const result = await getNetProfit(period, clubFilter);
       res.json(result);
     } else if (type === 'executive-summary') {
-      const summary = await getExecutiveSummary(period, club);
+      const summary = await getExecutiveSummary(period, clubFilter);
       res.json(summary);
     } else if (type === 'cash-flow') {  // Flujo de caja
-      const result = await getCashFlow(period, club);
+      const result = await getCashFlow(period, clubFilter);
       res.json(result);
     } else if (type === 'club-performance') {
-      const result = await getClubPerformance(period, club);
+      const result = await getClubPerformance(period, clubFilter);
       res.json(result);
     } else if (type === 'transaction-history') {
-      const result = await getTransactionHistory(period, club);
+      const result = await getTransactionHistory(period, clubFilter);
       res.json(result);
     } else if (type === 'future-projections') {
       // Temporalmente devuelve los datos de prueba, pero en producción podría devolver un mensaje

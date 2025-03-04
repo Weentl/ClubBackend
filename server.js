@@ -19,10 +19,9 @@ require('dotenv').config();
 
 const app = express();
 
-
 // Habilitar CORS para todos los orígenes (puedes restringirlo en producción)
 app.use(cors({
-  origin: ['https://myadclub.netlify.app', 'http://localhost:5173'], // Add any other origins you need
+  origin: process.env.CORS_ORIGINS.split(','), // Add any other origins you need
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
