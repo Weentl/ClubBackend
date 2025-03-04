@@ -6,6 +6,8 @@ const path = require('path');
 const Product = require('../models/Product');
 const Club = require('../models/Club'); // Asegúrate de importar el modelo Club
 
+
+
 // Configuración de multer para almacenar archivos en la carpeta "uploads"
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -17,6 +19,8 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
+
+router.use(express.json());
 
 // Endpoint para crear un producto (con subida de imagen opcional)
 router.post('/', upload.single('image'), async (req, res) => {
@@ -64,6 +68,49 @@ router.post('/', upload.single('image'), async (req, res) => {
     res.status(500).json({ message: 'Error al crear el producto' });
   }
 });
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const product = await Product.findByIdAndDelete(req.params.id);
+    if (!product) {
+      return res.status(404).json({ message: 'Producto no encontrado' });
+    }
+    res.json({ message: 'Producto eliminado correctamente' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error al eliminar el producto' });
+  }
+});
+
+// Endpoint para editar un producto
+router.put('/:id', upload.single('image'), async (req, res) => {
+  try {
+    const { name, category, type, description, purchase_price, sale_price } = req.body;
+    const updateData = {
+      name,
+      category,
+      type,
+      description,
+      purchase_price: parseFloat(purchase_price),
+      sale_price: parseFloat(sale_price)
+    };
+
+    if (req.file) {
+      updateData.image_url = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    }
+
+    const product = await Product.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    if (!product) {
+      return res.status(404).json({ message: 'Producto no encontrado' });
+    }
+    res.json(product);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error al actualizar el producto' });
+  }
+});
+
+module.exports = router;
 
 // Endpoint para obtener todos los productos
 router.get('/', async (req, res) => {

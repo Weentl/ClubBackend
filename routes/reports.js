@@ -944,11 +944,16 @@ async function getTransactionHistory(period, club) {
 
   // Gastos: usar el rango en UTC
   const expenseQuery = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
+
   if (club) {
-    try {
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      expenseQuery.club = { $in: club.map(club => mongoose.Types.ObjectId(club)) };
+
+    } else {
+      // Filtro para un club específico
       expenseQuery.club = mongoose.Types.ObjectId(club);
-    } catch (error) {
-      console.error("Club ID inválido:", club);
+
     }
   }
   
@@ -1035,15 +1040,20 @@ async function getSalesExpensesChartData(period, club) {
   // Construir el filtro de búsqueda para ventas y gastos
   let salesMatch = { created_at: { $gte: salesStartDate, $lte: salesEndDate } };
   let expenseMatch = { date: { $gte: expenseStartDate, $lte: expenseEndDate } };
+
+
   if (club) {
-    try {
+    if (Array.isArray(club)) {
+      // En modo global, club es un arreglo de IDs: se usa el operador $in
+      salesMatch.club = { $in: club.map(id => mongoose.Types.ObjectId(id)) };
+      expenseMatch.club = { $in: club };
+    } else {
+      // Filtro para un club específico
       salesMatch.club = mongoose.Types.ObjectId(club);
       expenseMatch.club = club;
-    } catch (error) {
-      console.error("Club ID inválido:", club);
-      return []; // Retorna un array vacío si el id no es válido
     }
   }
+
 
   // Agregación de ventas agrupadas por día
   const salesData = await Sale.aggregate([
@@ -1232,8 +1242,15 @@ router.get('/', authMiddleware, async (req, res) => {
 
 router.get('/sales-expenses', async (req, res) => {
   const { period, club } = req.query;
+  let clubFilter = club;
+
+  if (club === 'global') {
+    clubFilter = await getClubsForUser(req.userId);
+    console.log('Clubes para el usuario:', clubFilter);
+    // Ahora clubFilter es un arreglo de IDs, que las funciones de reporte deberán manejar
+  }
   try {
-    const chartData = await getSalesExpensesChartData(period, club);
+    const chartData = await getSalesExpensesChartData(period, clubFilter);
     res.json(chartData);
   } catch (err) {
     console.error(err);

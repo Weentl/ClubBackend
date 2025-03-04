@@ -45,9 +45,13 @@ mongoose
 
 // Rutas públicas (sin protección)
 app.use('/api/auth', authRoutes);
+app.use('/api/products', 
+  authMiddleware, 
+  express.json(), // Aplica sólo a rutas que necesiten JSON
+  productsRoutes
+);
 
 // Rutas protegidas: se añade el middleware de autenticación para validar el token
-app.use('/api/products', authMiddleware, productsRoutes);
 app.use('/api/inventory', authMiddleware, inventoryRoutes);
 app.use('/api/sales', authMiddleware, salesRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
@@ -63,3 +67,13 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor corriendo en el puerto ${PORT}`));
 
 
+if (process.env.PUBLIC_URL) {
+  const protocol = process.env.PUBLIC_URL.startsWith('https') ? require('https') : require('http');
+  setInterval(() => {
+    protocol.get(process.env.PUBLIC_URL, (res) => {
+      console.log(`Self ping: ${res.statusCode}`);
+    }).on('error', (err) => {
+      console.error('Error en el self ping:', err.message);
+    });
+  }, 300000); // 300000 ms = 5 minutos
+}
