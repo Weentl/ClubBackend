@@ -1,40 +1,37 @@
-// server.js
 const express = require('express');
 const mongoose = require('mongoose');
 const path = require('path');
-const cors = require('cors'); // Importa cors
+const cors = require('cors');
+const authMiddleware = require('./middleware/auth'); // Asegúrate de tener este middleware
 const authRoutes = require('./routes/auth');
 const productsRoutes = require('./routes/products');
-const inventoryRoutes = require('./routes/inventory'); // Importa las rutas de inventario
-const salesRoutes = require('./routes/sales'); // Nuevo endpoint de ventas
-const dashboardRoutes = require('./routes/dashboard'); // Importa las rutas del dashboard
-const clubsRoutes = require('./routes/clubs'); // Importa las rutas de los clubs
-const clientsRoutes = require('./routes/clients'); // Importa las rutas de los clientes
+const inventoryRoutes = require('./routes/inventory');
+const salesRoutes = require('./routes/sales');
+const dashboardRoutes = require('./routes/dashboard');
+const clubsRoutes = require('./routes/clubs');
+const clientsRoutes = require('./routes/clients');
 const employeeRoutes = require('./routes/employees');
-const reportsRoutes = require('./routes/reports'); // Importa el endpoint de reportes
-const expensesRoutes = require('./routes/expenses'); // Importa las rutas de gastos
+const reportsRoutes = require('./routes/reports');
+const expensesRoutes = require('./routes/expenses');
 const userRoutes = require('./routes/userRoutes');
 require('dotenv').config();
 
-
 const app = express();
 
-// Habilitar CORS para todos los orígenes (puedes restringirlo en producción)
+// Configurar CORS
 app.use(cors({
-  origin: process.env.CORS_ORIGINS.split(','), // Add any other origins you need
+  origin: process.env.CORS_ORIGINS.split(','),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
-
-// Add a pre-flight handler for OPTIONS requests
 app.options('*', cors());
 
-// Middlewares
+// Middlewares para manejo de JSON y URL-encoded
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Servir archivos estáticos desde la carpeta "uploads"
+// Servir archivos estáticos
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Conexión a MongoDB
@@ -46,22 +43,23 @@ mongoose
   .then(() => console.log('MongoDB conectado'))
   .catch((err) => console.error('Error conectando a MongoDB:', err));
 
-// Rutas
+// Rutas públicas (sin protección)
 app.use('/api/auth', authRoutes);
-app.use('/api/products', productsRoutes);
-app.use('/api/inventory', inventoryRoutes); // <-- Agrega el endpoint para inventario
-app.use('/api/sales', salesRoutes); // Agregamos la ruta de ventas
-app.use('/api/dashboard', dashboardRoutes); // Agregamos la ruta del dashboard
-app.use('/api/clubs', clubsRoutes);
-app.use('/api/clients', clientsRoutes);
-app.use('/api/reports', reportsRoutes); // Registrar la ruta de reportes
-app.use('/api/employees', employeeRoutes);
-app.use('/api/expenses', expensesRoutes); // Agrega la ruta de gastos
-app.use('/api/users', userRoutes);
 
-
+// Rutas protegidas: se añade el middleware de autenticación para validar el token
+app.use('/api/products', authMiddleware, productsRoutes);
+app.use('/api/inventory', authMiddleware, inventoryRoutes);
+app.use('/api/sales', authMiddleware, salesRoutes);
+app.use('/api/dashboard', authMiddleware, dashboardRoutes);
+app.use('/api/clubs', authMiddleware, clubsRoutes);
+app.use('/api/clients', authMiddleware, clientsRoutes);
+app.use('/api/reports', authMiddleware, reportsRoutes);
+app.use('/api/employees', authMiddleware, employeeRoutes);
+app.use('/api/expenses', authMiddleware, expensesRoutes);
+app.use('/api/users', authMiddleware, userRoutes);
 
 // Puerto de escucha
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Servidor corriendo en el puerto ${PORT}`));
+
 
