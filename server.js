@@ -50,6 +50,7 @@ app.use('/api/products',
   express.json(), // Aplica sólo a rutas que necesiten JSON
   productsRoutes
 );
+app.use('/api/employees', authMiddleware,express.json(), employeeRoutes);
 
 // Rutas protegidas: se añade el middleware de autenticación para validar el token
 app.use('/api/inventory', authMiddleware, inventoryRoutes);

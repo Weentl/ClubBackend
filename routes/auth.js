@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const authMiddleware = require('../middleware/auth'); // Asegúrate de tener el middleware de autenticación
 const Club = require('../models/Club'); // Importamos el nuevo modelo
+const Employee = require('../models/Employee'); 
 
 
 
@@ -63,8 +64,17 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'Credenciales inválidas.' });
+    let user = await User.findOne({ email });
+    let userType = 'owner';
+
+    if (!user) {
+      user = await Employee.findOne({ email });
+      userType = 'employee';
+    }
+
+    if (!user) {
+      return res.status(400).json({ message: 'Credenciales inválidas.' });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Credenciales inválidas.' });
@@ -72,23 +82,39 @@ router.post('/login', async (req, res) => {
     // Genera un token JWT (válido por 1 día)
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1h' });
     // Buscar el club principal del usuario
-    const mainClub = await Club.findOne({ user: user._id, isMain: true });
-
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-        businessType: user.businessType,
-        isFirstLogin: user.isFirstLogin, // Nuevo campo
-      },
-      mainClub: mainClub ? {
-        id: mainClub._id,
-        clubName: mainClub.clubName,
-        address: mainClub.address
-      } : null
-    });
+    if (userType === 'owner') {
+      const mainClub = await Club.findOne({ user: user._id, isMain: true });
+      return res.json({
+        token,
+        user: {
+          id: user._id,
+          fullName: user.fullName,
+          email: user.email,
+          businessType: user.businessType,
+          isFirstLogin: user.isFirstLogin,
+          userType
+        },
+        mainClub: mainClub ? {
+          id: mainClub._id,
+          clubName: mainClub.clubName,
+          address: mainClub.address
+        } : null
+      });
+    } else {
+      // Para empleados se responde con los datos básicos
+      return res.json({
+        token,
+        user: {
+          id: user._id,
+          fullName: user.name, // En Employee se usa "name" en lugar de "fullName"
+          email: user.email,
+          role: user.role,
+          userType
+        },
+        // Para el empleado, "club" contiene el ID del club al que pertenece
+        mainClub: user.club || null
+      });
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error en el servidor.' });
