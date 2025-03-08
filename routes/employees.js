@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const path = require('path');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
-
+const authMiddleware = require('../middleware/auth');
 const Employee = require('../models/Employee');
 const Club = require('../models/Club');
 const User = require('../models/User'); // Importa el modelo de User
@@ -82,22 +82,6 @@ router.post('/', upload.single('photo'), async (req, res) => {
 
     await newEmployee.save();
 
-    // Crear un usuario en la colección de User para el empleado
-    // Se asigna el rol de "employee" y se vincula al club y al dueño.
-    // Nota: El modelo User actual no tiene campos para role, club u owner.
-    // Se pueden guardar como propiedades adicionales si tu esquema lo permite (o ajustar el esquema).
-    const newUser = new User({
-      fullName: name,
-      email,
-      password: hashedPassword,
-      acceptedTerms: true, // O el valor que convenga
-      // Campos adicionales para distinguir el rol y dependencias
-      role: 'employee',
-      club,       // ID del club al que pertenece el empleado
-      owner: req.userId  // ID del dueño que lo creó
-    });
-
-    await newUser.save();
 
     res.status(201).json({ 
       user_code: newEmployee._id, 
@@ -137,6 +121,37 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Empleado eliminado correctamente' });
   } catch (error) {
     res.status(500).json({ error: 'Error al eliminar empleado' });
+  }
+});
+
+router.post('/:id/change-password', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { newPassword } = req.body;
+
+  if (!newPassword) {
+    return res.status(400).json({ message: 'La nueva contraseña es requerida.' });
+  }
+
+  try {
+    const employee = await Employee.findById(id);
+    if (!employee) {
+      return res.status(404).json({ message: 'Empleado no encontrado.' });
+    }
+
+    // Opcional: verifica que el usuario autenticado tenga permisos para cambiar la contraseña de este empleado.
+    // Por ejemplo, podrías comparar req.userId con employee.created_by o aplicar otra lógica de autorización.
+
+    // Cifrar la nueva contraseña
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    employee.password = hashedPassword;
+    employee.isFirstLogin = false; // Marcar que ya no es el primer login
+    await employee.save();
+
+
+    res.json({ message: 'Contraseña actualizada correctamente.' });
+  } catch (error) {
+    console.error('Error al cambiar la contraseña del empleado:', error);
+    res.status(500).json({ message: 'Error en el servidor.' });
   }
 });
 

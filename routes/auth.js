@@ -64,24 +64,27 @@ router.post('/login', async (req, res) => {
   }
 
   try {
-    let user = await User.findOne({ email });
-    let userType = 'owner';
+    // Primero buscar en la colección de empleados
+    let user = await Employee.findOne({ email });
+    let userType = 'employee';
 
+    // Si no se encontró en empleados, buscar en la colección de dueños
     if (!user) {
-      user = await Employee.findOne({ email });
-      userType = 'employee';
+      user = await User.findOne({ email });
+      userType = 'owner';
     }
 
     if (!user) {
       return res.status(400).json({ message: 'Credenciales inválidas.' });
     }
 
+    console.log('User:', user);
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Credenciales inválidas.' });
 
-    // Genera un token JWT (válido por 1 día)
+    // Genera un token JWT (válido por 1 hora)
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1h' });
-    // Buscar el club principal del usuario
+
     if (userType === 'owner') {
       const mainClub = await Club.findOne({ user: user._id, isMain: true });
       return res.json({
@@ -91,27 +94,28 @@ router.post('/login', async (req, res) => {
           fullName: user.fullName,
           email: user.email,
           businessType: user.businessType,
-          isFirstLogin: user.isFirstLogin,
+          isFirstLogin: false,
           userType
         },
-        mainClub: mainClub ? {
-          id: mainClub._id,
-          clubName: mainClub.clubName,
-          address: mainClub.address
-        } : null
+        mainClub: mainClub
+          ? {
+              id: mainClub._id,
+              clubName: mainClub.clubName,
+              address: mainClub.address
+            }
+          : null
       });
     } else {
-      // Para empleados se responde con los datos básicos
       return res.json({
         token,
         user: {
           id: user._id,
-          fullName: user.name, // En Employee se usa "name" en lugar de "fullName"
+          fullName: user.name, // En Employee se usa "name"
           email: user.email,
           role: user.role,
+          isFirstLogin: user.isFirstLogin,
           userType
         },
-        // Para el empleado, "club" contiene el ID del club al que pertenece
         mainClub: user.club || null
       });
     }

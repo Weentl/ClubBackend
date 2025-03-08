@@ -10,7 +10,8 @@ const EmployeeSchema = new mongoose.Schema({
   club: { type: mongoose.Schema.Types.ObjectId, ref: 'Club', required: true },
   is_active: { type: Boolean, default: true },
   permissions: { type: [String], default: ['sales'] },
-  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
+  created_by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  isFirstLogin: { type: Boolean, default: true }  // <--- Agregado
 }, { 
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }
 });
