@@ -100,12 +100,50 @@ router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    const updatedEmployee = await Employee.findByIdAndUpdate(id, updates, { new: true });
-    if (!updatedEmployee) {
+    
+    // Buscar el empleado actual
+    const employee = await Employee.findById(id);
+    if (!employee) {
       return res.status(404).json({ error: 'Empleado no encontrado' });
     }
+    
+    // Si se intenta actualizar el email y es diferente al actual, verificar disponibilidad
+    if (updates.email && updates.email !== employee.email) {
+      // Verificar en la colección de empleados
+      const existingEmployee = await Employee.findOne({ email: updates.email });
+      // Verificar también en la colección de usuarios (dueños)
+      const existingUser = await User.findOne({ email: updates.email });
+      if (existingEmployee || existingUser) {
+        return res.status(400).json({ error: 'El email ya está en uso' });
+      }
+    }
+    
+    // Campos permitidos para actualizar
+    const allowedFields = ['fullName', 'email', 'phone'];
+    let changed = false;
+    
+    // Actualizar solo los campos que tienen un valor definido, no vacío, y que sean diferentes al actual
+    allowedFields.forEach(field => {
+      if (
+        updates[field] !== undefined &&
+        updates[field] !== null &&
+        updates[field] !== '' &&
+        updates[field] !== employee[field]
+      ) {
+        employee[field] = updates[field];
+        changed = true;
+      }
+    });
+    
+    // Si no se detectaron cambios, retorna el empleado actual sin guardar
+    if (!changed) {
+      return res.json(employee);
+    }
+    
+    const updatedEmployee = await employee.save();
     res.json(updatedEmployee);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: 'Error al actualizar empleado' });
   }
 });
@@ -155,7 +193,28 @@ router.post('/:id/change-password', authMiddleware, async (req, res) => {
   }
 });
 
+
+router.get('/club/:employeeId', async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    console.log('ID del empleado:', employeeId);
+    const employee = await Employee.findById(employeeId);
+    if (!employee) {
+      return res.status(404).json({ error: 'Empleado no encontrado' });
+    }
+    const club = await Club.findById(employee.club);
+    if (!club) {
+      return res.status(404).json({ error: 'Club no encontrado' });
+    }
+    res.json(club);
+  } catch (error) {
+    console.error('Error al obtener la información del club:', error);
+    res.status(500).json({ error: 'Error al obtener la información del club' });
+  }
+});
+
 module.exports = router;
+
 
 
 

@@ -34,7 +34,8 @@ const expenseSchema = new mongoose.Schema({
   club: {
     type: String,
     required: true
-  }
+  },
+  employee: { type: String }
 }, {
   timestamps: true
 });
