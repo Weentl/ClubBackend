@@ -16,56 +16,89 @@ router.get('/kpis', async (req, res) => {
     return res.status(400).json({ error: 'El club es requerido' });
   }
   try {
-    // Usar UTC para consultas de fechas para evitar problemas de zona horaria
+    // Usar UTC para las consultas y definir la zona horaria para ventas diarias
     const now = moment.utc();
     const nowSale = moment.tz('America/Mexico_City');
     
-    // Calcular inicio y fin del día en UTC
+    // Calcular el inicio y fin del día de hoy (zona horaria America/Mexico_City)
     const startOfDay = nowSale.clone().startOf('day').toDate();
     const endOfDay = nowSale.clone().endOf('day').toDate();
     
-    console.log('startOfDay', startOfDay);
-    console.log('endOfDay', endOfDay);
-    // Ventas Hoy: suma de las ventas de hoy para el club
+    // Calcular el inicio y fin del día de ayer
+    const yesterdaySale = nowSale.clone().subtract(1, 'day');
+    const startOfYesterday = yesterdaySale.clone().startOf('day').toDate();
+    const endOfYesterday = yesterdaySale.clone().endOf('day').toDate();
+
+    // Calcular el periodo del mes actual (en UTC)
+    const startOfMonth = now.clone().startOf('month').toDate();
+    const endOfMonth = now.clone().endOf('month').toDate();
+
+    // Calcular el periodo del mes pasado (en UTC)
+    const startOfLastMonth = now.clone().subtract(1, 'month').startOf('month').toDate();
+    const endOfLastMonth = now.clone().subtract(1, 'month').endOf('month').toDate();
+
+    // Ventas de hoy: suma de las ventas del día de hoy para el club
     const salesToday = await Sale.find({
       club,
       created_at: { $gte: startOfDay, $lte: endOfDay }
     });
     const ventasHoy = salesToday.reduce((sum, sale) => sum + sale.total, 0);
-    
-    // Calcular el periodo del mes actual en UTC
-    const startOfMonth = now.clone().startOf('month').toDate();
-    const endOfMonth = now.clone().endOf('month').toDate();
-    
-    // Ventas del mes: usar "created_at"
+
+    // Ventas de ayer: suma de las ventas del día de ayer
+    const salesYesterday = await Sale.find({
+      club,
+      created_at: { $gte: startOfYesterday, $lte: endOfYesterday }
+    });
+    const ventasAyer = salesYesterday.reduce((sum, sale) => sum + sale.total, 0);
+
+    // Ventas del mes actual
     const salesMonth = await Sale.find({
       club,
       created_at: { $gte: startOfMonth, $lte: endOfMonth }
     });
     const monthlySales = salesMonth.reduce((sum, sale) => sum + sale.total, 0);
-    
-    // Gastos del mes: usar fecha en UTC para evitar problemas de zonas horarias
+
+    // Ventas del mes pasado
+    const salesLastMonth = await Sale.find({
+      club,
+      created_at: { $gte: startOfLastMonth, $lte: endOfLastMonth }
+    });
+    const monthlySalesLastMonth = salesLastMonth.reduce((sum, sale) => sum + sale.total, 0);
+
+    // Gastos del mes actual
     const expensesMonth = await Expense.find({
       club,
       date: { $gte: startOfMonth, $lte: endOfMonth }
     });
     const monthlyExpenses = expensesMonth.reduce((sum, expense) => sum + expense.amount, 0);
-    
-    // Ganancias Mensuales Netas: ventas menos gastos
+
+    // Gastos del mes pasado
+    const expensesLastMonth = await Expense.find({
+      club,
+      date: { $gte: startOfLastMonth, $lte: endOfLastMonth }
+    });
+    const monthlyExpensesLastMonth = expensesLastMonth.reduce((sum, expense) => sum + expense.amount, 0);
+
+    // Ganancias Mensuales Netas: ventas del mes actual menos gastos del mes actual
     const gananciasMensuales = monthlySales - monthlyExpenses;
-    
+
+    // Ganancias del Mes Pasado Netas: ventas del mes pasado menos gastos del mes pasado
+    const gananciasMesPasado = monthlySalesLastMonth - monthlyExpensesLastMonth;
+
     // Productos Bajos en Stock: contar registros de inventario con cantidad menor a 5 para el club
     const productosBajosStock = await Inventory.countDocuments({
       club,
       quantity: { $lt: 5 }
     });
-    
-    // Clubs Activos: conteo global de clubs
+
+    // Clubs Activos: conteo global de clubs asociados al usuario
     const clubsActivos = await Club.countDocuments({ user });
-    
+
     res.json({
       ventasHoy,
+      ventasAyer,
       gananciasMensuales,
+      gananciasMesPasado,
       productosBajosStock,
       clubsActivos
     });
@@ -74,6 +107,7 @@ router.get('/kpis', async (req, res) => {
     res.status(500).json({ error: 'Error calculando los KPIs' });
   }
 });
+
 
 
 router.get('/chart-data', async (req, res) => {
