@@ -105,5 +105,66 @@ router.get('/low-stock', async (req, res) => {
   }
 });
 
+// PATCH /api/inventory/movements/:movementId
+router.patch('/movements/:movementId', async (req, res) => {
+  const { movementId } = req.params;
+  const { type, quantity, notes } = req.body;
+  const club = req.body.club || req.query.club; // Permitir club en body o query
+  if (!club) {
+    return res.status(400).json({ error: 'Club es requerido' });
+  }
+  try {
+    const movement = await InventoryMovement.findById(movementId);
+    if (!movement) {
+      return res.status(404).json({ error: 'Movimiento no encontrado' });
+    }
+    // Calcula la diferencia en cantidad para ajustar el inventario
+    const quantityDiff = quantity - movement.quantity;
+    movement.type = type || movement.type;
+    movement.quantity = quantity;
+    movement.notes = notes;
+    await movement.save();
+
+    // Actualizar el inventario del club
+    const inventory = await Inventory.findOne({ product_id: movement.product_id, club });
+    if (inventory) {
+      inventory.quantity += quantityDiff;
+      await inventory.save();
+    }
+    res.json({ movement, inventory });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+// Endpoint para eliminar un movimiento
+// DELETE /api/inventory/movements/:movementId
+router.delete('/movements/:movementId', async (req, res) => {
+  const { movementId } = req.params;
+  const { club } = req.query;
+  if (!club) {
+    return res.status(400).json({ error: 'Club es requerido' });
+  }
+  try {
+    const movement = await InventoryMovement.findById(movementId);
+    if (!movement) {
+      return res.status(404).json({ error: 'Movimiento no encontrado' });
+    }
+    // Actualizar el inventario: se resta la cantidad del movimiento eliminado
+    const inventory = await Inventory.findOne({ product_id: movement.product_id, club });
+    if (inventory) {
+      inventory.quantity -= movement.quantity;
+      await inventory.save();
+    }
+    await movement.remove();
+    res.json({ message: 'Movimiento eliminado', inventory });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error en el servidor' });
+  }
+});
+
+
 module.exports = router;
 

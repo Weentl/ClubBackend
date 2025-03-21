@@ -6,6 +6,7 @@ const InventoryMovement = require('../models/InventoryMovement');
 const moment = require('moment-timezone');
 const Employee = require('../models/Employee'); // Modelo de empleados
 const User = require('../models/User'); // Modelo de usuarios
+const Product = require('../models/Product');
 
 // GET /api/sales - Obtener todas las ventas filtradas por club si se proporciona
 router.get('/', async (req, res) => {
@@ -84,10 +85,18 @@ router.post('/', async (req, res) => {
       }
     }
   }
-
+  const updatedItems = await Promise.all(
+    items.map(async (item) => {
+      const product = await Product.findById(item.product_id);
+      return {
+        ...item,
+        product_name: product ? product.name : 'Producto desconocido'
+      };
+    })
+  );
     // Crear la venta incluyendo el club, el usuario que la crea y, si corresponde, el cliente
     const saleData = { 
-      items, 
+      items: updatedItems, 
       total, 
       status, 
       club, 

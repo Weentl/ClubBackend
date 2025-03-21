@@ -7,6 +7,7 @@ const User = require('../models/User');
 const authMiddleware = require('../middleware/auth'); // Asegúrate de tener el middleware de autenticación
 const Club = require('../models/Club'); // Importamos el nuevo modelo
 const Employee = require('../models/Employee'); 
+const transporter = require ('../utils/transporter')
 
 
 
@@ -86,7 +87,7 @@ router.post('/login', async (req, res) => {
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '1h' });
 
     if (userType === 'owner') {
-      const mainClub = await Club.findOne({ user: user._id, isMain: true });
+      const mainClub = await Club.findOne({ user : user._id, isMain: true });
       return res.json({
         token,
         user: {
@@ -132,16 +133,17 @@ router.post('/logout', (req, res) => {
   res.json({ message: 'Sesión cerrada correctamente.' });
 });
 
-// Endpoint para solicitar reseteo de contraseña
+
 router.post('/request-reset', async (req, res) => {
   const { email } = req.body;
-  if (!email) return res.status(400).json({ message: 'El email es requerido.' });
+  if (!email)
+    return res.status(400).json({ message: 'El email es requerido.' });
 
   try {
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: 'Usuario no encontrado.' });
 
-    // Genera un código de 6 dígitos y lo guarda con expiración (15 minutos)
+    // Genera un código de 6 dígitos y establece su expiración en 15 minutos
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiration = new Date(Date.now() + 15 * 60 * 1000);
 
@@ -149,9 +151,46 @@ router.post('/request-reset', async (req, res) => {
     user.resetCodeExpiration = expiration;
     await user.save();
 
-    // En producción, aquí enviarías el código por email.
-    // Para pruebas locales devolvemos el código en la respuesta.
-    res.json({ message: 'Código de reseteo generado.', resetCode });
+    // Opcional: enviar el código por email
+    const mailOptions = {
+      from: `"Tu App" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Código de Reseteo de Contraseña',
+      text: `Hola, tu código para resetear la contraseña es: ${resetCode}. Este código expirará en 15 minutos.`,
+    };
+
+    transporter.sendMail(mailOptions, (err, info) => {
+      if (err) {
+        console.error('Error al enviar el correo:', err);
+      } else {
+        console.log('Correo enviado:', info.response);
+      }
+    });
+
+    res.json({ message: 'Código de reseteo generado y enviado.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error en el servidor.' });
+  }
+});
+
+// Endpoint para verificar el código de reseteo (Paso 2)
+router.post('/verify-reset-code', async (req, res) => {
+  const { email, code } = req.body;
+  if (!email || !code) {
+    return res.status(400).json({ message: 'Faltan campos requeridos.' });
+  }
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: 'Usuario no encontrado.' });
+
+    // Verifica que el código coincida y que no esté expirado
+    if (user.resetCode !== code || user.resetCodeExpiration < new Date()) {
+      return res.status(400).json({ message: 'Código inválido o expirado.' });
+    }
+
+    res.json({ message: 'Código verificado correctamente.' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error en el servidor.' });
@@ -169,14 +208,17 @@ router.post('/reset-password', async (req, res) => {
     const user = await User.findOne({ email });
     if (!user) return res.status(400).json({ message: 'Usuario no encontrado.' });
 
-    // Verifica que el código coincida y no esté expirado
+    // Verifica que el código sea correcto y que no haya expirado
     if (user.resetCode !== code || user.resetCodeExpiration < new Date()) {
       return res.status(400).json({ message: 'Código inválido o expirado.' });
     }
 
+    // Actualiza la contraseña
     user.password = await bcrypt.hash(newPassword, 10);
-    user.resetCode = undefined;
-    user.resetCodeExpiration = undefined;
+    // Elimina los campos resetCode y resetCodeExpiration del usuario
+    console.log(user)
+    delete user.resetCode;
+    delete user.resetCodeExpiration;
     await user.save();
 
     res.json({ message: 'Contraseña actualizada correctamente.' });
